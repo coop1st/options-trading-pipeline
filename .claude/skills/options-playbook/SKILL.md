@@ -35,13 +35,19 @@ claim back to its exact source passage.
   volatility. Historic/realized/implied/expected volatility, annualizing
   volatility across time periods, volatility skew (including
   Chen/Sebastian's "three-dimensional volatility" model), weighted
-  vega/gamma, and gamma scalping. Start here for any question about *why*
-  an option is priced the way it is or *how* a Greek will move.
+  vega/gamma, gamma scalping, and delta-neutral trading theory (long vs.
+  short volatility, why it breaks even when implied and realized volatility
+  match, and the asymmetric risk profile when they don't). Start here for
+  any question about *why* an option is priced the way it is or *how* a
+  Greek will move.
 
 - **`references/income-strategies.md`** — Premium-selling as underwriting:
   the covered-call/cash-secured-put ↔ short-put synthetic equivalence,
-  vertical credit spreads, iron condors, and the risk controls specific to
-  being a net option seller. Use for "should I sell this premium" questions.
+  vertical credit spreads, iron condors, the risk controls specific to being
+  a net option seller, and a pre-trade evaluation checklist (market
+  conditions, realized/implied volatility, term structure, skew,
+  cross-product correlation, strike selection) plus the full trade-execution
+  checklist. Use for "should I sell this premium" questions.
 
 - **`references/spreads-and-combinations.md`** — Construction, greeks
   profile, entry/management/exit rules for vertical spreads, iron condors,
