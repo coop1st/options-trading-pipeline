@@ -1,2 +1,32 @@
 Material/
 .claude/worktrees/
+
+# The local options database is entirely regenerable from GitHub-published
+# snapshots plus free public sources -- it stays local, never goes to
+# GitHub. Only small derived exports (options snapshots, computed signals,
+# the recommendation ledger) get published; see data/github_sync/.
+data/db/*.db
+data/db/*.db-wal
+data/db/*.db-shm
+data/db/*.log
+
+# Operational logs from scheduled runs -- local only.
+data/logs/
+
+# Daily-regenerated cache files -- rebuilt fresh on every run, never needs
+# to be committed.
+data/cache/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Local environment / secrets -- should only ever live in OS environment
+# variables or a local, gitignored .env.
+.env
+.env.local
+
+# Editor/OS cruft
+.DS_Store
+Thumbs.db
