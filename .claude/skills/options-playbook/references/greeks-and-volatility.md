@@ -759,7 +759,33 @@ way-out-of-the-money options."
 
 ---
 
-## 6. Gamma Scalping
+## 6. Delta-Neutral Trading: Long and Short Volatility (Bittman Ch.8)
+
+Delta-neutral trading is a **non-directional** technique — it profits, loses, or breaks even based on the relationship between **implied volatility and realized volatility**, not on which way the underlying moves. It is the speculative counterpart to the market-maker use of delta-neutral hedging covered in `market-making-techniques.md` §2; this section covers the volatility-forecasting use case.
+
+**Definition and construction**: a delta-neutral position is any combination of long/short stock, calls, and puts whose net delta is zero or near-zero (position delta = Σ over all legs of contracts × 100 × per-option delta). Two or more legs; the classic two-part forms are long calls + short stock, short calls + long stock, long puts + long stock, and short puts + short stock.
+
+**The three-step process**: (1) establish a delta-neutral position; (2) as the underlying moves and gamma pulls net delta away from zero, make **adjusting stock trades** (buy or sell just enough stock to return delta to ~zero) on a predetermined schedule — time-based (e.g., once daily) or move-based (e.g., every $2 move, or every 1-SD move per §2 above); (3) close the whole position.
+
+**Long volatility** (positive vega — options are owned) vs. **short volatility** (negative vega — options are written): both are illustrated in Bittman's worked multi-day examples with a hypothetical trader ("Tom") buying or selling calls delta-neutral and adjusting daily.
+
+**The core theoretical result — breakeven when IV = realized volatility**: when a delta-neutral position is held and implied volatility stays constant and equals the volatility the underlying actually realizes over the holding period, the P&L from the option leg (time decay, working for or against the position depending on long/short) is *exactly offset* by the P&L from the adjusting stock trades — regardless of the specific path the stock took to get there. This holds symmetrically for both long-volatility positions (theta loss offset by stock-trading profit) and short-volatility positions (theta profit offset by stock-trading loss).
+
+**Reality diverges from theory in two ways, and this is where the profit/loss actually comes from**:
+- **Long volatility profits when realized volatility exceeds implied volatility** — the bigger the underlying's actual, frequent swings relative to the IV baked into the options at entry, the bigger the profit from the adjusting stock trades outrunning the option's time decay. (Worked example: a position showing $8,540 profit when the underlying's realized behavior implied ~94% volatility against options priced at 35% IV.)
+- **Long volatility loses when implied volatility itself falls**, even if the directional/delta component of the trade is working correctly — a sharp IV decline can turn an otherwise-profitable move into a net loss, since the vega loss from falling IV can outweigh the delta gain from a favorable price move. This makes exit timing a genuine forecast about *where IV is headed*, not just where price is headed.
+- Short-volatility positions face the mirror-image risks (below).
+
+**Speculative risk profile**:
+- **Long volatility — limited but substantial risk**: a pure IV decline (holding price fixed) costs `vega × (IV point-drop) × contracts × 100`, before any additional theta loss; maximum loss is capped at the full premium paid (options expire worthless if the underlying settles exactly at the strike).
+- **Short volatility — unlimited risk**, from two separate sources: (1) rising IV, uncapped as IV keeps climbing; (2) a sudden large underlying move/gap (e.g., an overnight earnings surprise) — a "delta-neutral" position is only protected against *small* moves; a large enough gap can produce a large loss on both legs simultaneously despite having started perfectly hedged. **Delta-neutral is risk-reduced, not risk-free.**
+- What counts as "high" or "low" volatility for judging whether to run a long- or short-volatility book is instrument-specific and requires the historic/implied-volatility context from §2 above.
+
+**Market-maker use is different in kind, not just degree**: per `market-making-techniques.md` §2, a market maker's delta-neutral hedge is a defensive, no-forecast-implied step in a bid/ask-capture trade meant to last minutes to hours — not a volatility bet held for days to weeks like the speculative use described here.
+
+---
+
+## 7. Gamma Scalping
 
 Per Chen/Sebastian (ch.14): the author, as a former market maker, had far
 more hedging flexibility than most retail traders (any instrument, any
@@ -831,7 +857,7 @@ hedging is done. Two methods, for two trader profiles:
 
 ---
 
-## 7. Where the Two Books Differ
+## 8. Where the Two Books Differ
 
 | Topic | Per Bittman | Per Chen/Sebastian |
 |---|---|---|

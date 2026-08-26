@@ -137,7 +137,35 @@ Related pricing/skew tools relevant to condor entry (fully covered in `greeks-an
 
 ---
 
-## 6. Summary Table: Income-Strategy Structures Covered Here
+## 6. Pre-Trade Evaluation: Judging Whether a Policy Is Worth Selling
+
+*Per Chen/Sebastian, Ch.4 "Trade Execution."* This is the concrete, repeatable process for the underwriting decision introduced in §1 — the checklist to run through before selling any premium, not after. (Order-entry/fill-quality mechanics from the same chapter — broker selection, exchange routing, complex-order pricing, working an order — are covered in `market-making-techniques.md` instead, since that content is about execution quality rather than trade selection.)
+
+**Conditions of the Market**: reject the habit of entering the same trade every month regardless of conditions. At any time, overall volatility, specific contract months, and specific strikes can each independently be over- or underpriced — assess current conditions and sell the policy least likely to be exercised, rather than running a fixed playbook.
+
+**Evaluate Potential Realized Volatility**: before pricing a policy, know what could trigger it — check for upcoming earnings, major data releases, Fed meetings, and geopolitical risk. The entire premise of selling premium rests on the assumption that **volatility is mean-reverting** (a stock moving unusually fast tends to slow down, and vice versa); this assumption is what makes an "expensive" option a fair sell in the first place. No amount of research predicts true catastrophes (earthquakes, terrorist attacks) — always keep a worst-case scenario in mind rather than relying purely on historical volatility.
+
+**Evaluate Implied Volatility**: if historical volatility mean-reverts and implied volatility is based on historical-volatility expectations, IV should mean-revert too — the general rule is that IV trading at a premium to its own mean is typically a better sell than buy, but only *after* the realized-volatility step above has ruled out a genuine reason for the premium. **Worked case study (2010 VIX flash crash)**: VIX options are cash-settled and European-style, so they price toward VIX's own mean-reversion expectation rather than tracking the spot VIX level directly. At the crash's peak, spot VIX traded near 40% but VIX futures sat around 29.20 — so a 30-strike VIX call and a 47.5-strike VIX call, despite looking far apart relative to the cash index, were priced close together because both were effectively near-the-money against the futures level the market actually expected to prevail. **Lesson: buying deep-OTM VIX calls in the middle of a volatility spike is one of the worst trades possible, because VIX's mean reversion works directly against the position.**
+
+**Evaluate the Months**: look at the full **term structure**, not just the current month's IV — different expiration months are correlated but not perfectly tied together, and customer order flow ("paper flow") can make one month rich or cheap relative to its neighbors, creating both outright and month-vs.-month spread opportunities. Digging into *why* a month is priced unusually can reveal either a trade that's worse than it looks, or a genuine mispricing left by a large trader unwinding a position.
+
+**Evaluate the Skew**: skew (how rich/cheap OTM puts and calls are relative to ATM) is largely a byproduct of institutional hedging flow — equity/pension hedgers routinely buy downside puts and sell upside calls (a collar) to finance protection, which structurally makes puts relatively expensive and calls relatively cheap versus ATM. The skew curve's steepness moves over time as this hedging flow changes, and reading its current steepness helps decide which side of a trade (and which strikes) offer the better relative sale. (Full skew mechanics, including the SPX skew-cycle model, are in `greeks-and-volatility.md`.)
+
+**Evaluate Other Products**: don't fixate on one underlying — most premium-selling operations also watch closely correlated products (e.g., OEX vs. SPX, historically ~0.98 beta) since liquidity differences can leave one significantly mispriced relative to the other even when the two should move together. Before entering any trade, confirm it's the single best opportunity available by running correlated alternatives through the same evaluation.
+
+**Picking Strikes**: don't be married to a fixed target delta, a fixed percentage-OTM distance, or a fixed spread width — if a neighboring strike (or a wider/narrower spread) offers a better relative credit, take that instead. At scale (a fully funded operation might run 10,000–100,000 contracts/month), even a penny of improved average fill compounds meaningfully — evaluate the whole strike surface and sell the richest option near the target, not just the first one that fits a rule of thumb.
+
+**Trade Execution Checklist** — run through before every entry:
+
+*Before the trade:* What market? What's the market's direction? Did you check volatility conditions — historical vol, implied vol, and skew? What strategy fits? If it's a complex spread, how will it be executed (single complex order vs. legging in)? What's the maximum allowed loss? Is the expected return within your underwriting parameters? What's the target profit? What size, and does it conform to your position-sizing rules? At what point would the trade need adjustment, and do you know what those adjustments would be?
+
+*During the trade:* Has it hit an adjustment point? Has it hit its profit or loss target?
+
+*After the trade:* Did you log it in the trading diary? Did you follow the trading plan — and if not, why not?
+
+---
+
+## 7. Summary Table: Income-Strategy Structures Covered Here
 
 | Strategy | Structure | Directional bias | Source |
 |---|---|---|---|
