@@ -47,8 +47,11 @@ jobs:
             echo "session=open" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event.schedule }}" = "30 16 * * 1-5" ]; then
             echo "session=mid" >> "$GITHUB_OUTPUT"
-          else
+          elif [ "${{ github.event.schedule }}" = "55 19 * * 1-5" ]; then
             echo "session=close" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::Unrecognized schedule value: ${{ github.event.schedule }}"
+            exit 1
           fi
 
       - name: Fetch options snapshot
