@@ -23,6 +23,7 @@ from config import MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, RISK_FREE_RATE, S
 from db import (
     get_atm_iv_history,
     get_latest_snapshot_rows,
+    get_most_recent_snapshot_date,
     init_db,
     is_merged,
     mark_merged,
@@ -82,21 +83,40 @@ def compute_signals(rows, snapshot_date):
     if df.empty:
         return pd.DataFrame()
 
-    # Greeks (component C step 4)
+    # Greeks (component C step 4). Isolated per-row (mirrors Stocks'
+    # run_stage_safely() convention per the design spec) so one malformed
+    # input (e.g. a zero/negative strike, a bad date) can't crash the
+    # whole run -- it falls back to None Greeks for that row instead.
     greek_cols = {"delta": [], "gamma": [], "theta": [], "vega": [], "rho": []}
+    greek_failures = 0
     for _, r in df.iterrows():
-        days_to_exp = (date.fromisoformat(r["expiration"]) - date.fromisoformat(snapshot_date)).days
-        g = compute_greeks(
-            r["underlying_price"], r["strike"], days_to_exp,
-            r["implied_volatility"], r["type"], RISK_FREE_RATE,
-        )
+        try:
+            days_to_exp = (date.fromisoformat(r["expiration"]) - date.fromisoformat(snapshot_date)).days
+            g = compute_greeks(
+                r["underlying_price"], r["strike"], days_to_exp,
+                r["implied_volatility"], r["type"], RISK_FREE_RATE,
+            )
+        except Exception as exc:
+            greek_failures += 1
+            print(f"Greeks computation failed for {r.get('contract_symbol')!r}: {exc}")
+            g = {"delta": None, "gamma": None, "theta": None, "vega": None, "rho": None}
         for k in greek_cols:
             greek_cols[k].append(g[k])
     for k, v in greek_cols.items():
         df[k] = v
+    if greek_failures:
+        print(f"Greeks computation: {greek_failures} failed of {len(df)} rows")
 
     # Liquidity flags (component C step 5)
     df["low_liquidity"] = (df["volume"] < MIN_VOLUME) | (df["open_interest"] < MIN_OPEN_INTEREST)
+    # Data-quality flags surfaced (but not filtered) per the exploration
+    # spike's findings -- near-zero bid/ask and wide spreads make a
+    # contract's IV/Greeks unreliable even when it's otherwise liquid
+    # enough to pass the volume/OI filter above.
+    df["zero_bid"] = df["bid"] <= 0
+    ask_for_spread = df["ask"].where(df["ask"] > 0)
+    spread_pct = (df["ask"] - df["bid"]) / ask_for_spread
+    df["wide_spread"] = (df["bid"] > 0) & (spread_pct > 0.5).fillna(False)
 
     # IV / skew reads (component C step 6)
     df["atm_iv"] = None
@@ -104,29 +124,40 @@ def compute_signals(rows, snapshot_date):
     df["skew_put_pct_of_atm"] = None
     df["skew_call_pct_of_atm"] = None
     history_rows = []
+    group_failures = 0
+    n_groups = 0
 
     for (symbol, expiration), group in df.groupby(["symbol", "expiration"]):
-        underlying_price = group["underlying_price"].iloc[0]
-        atm_iv = _atm_iv(group, underlying_price)
-        df.loc[group.index, "atm_iv"] = atm_iv
-        if atm_iv:
-            history_rows.append({
-                "symbol": symbol, "expiration": expiration,
-                "snapshot_date": snapshot_date, "atm_iv": atm_iv,
-            })
+        n_groups += 1
+        try:
+            underlying_price = group["underlying_price"].iloc[0]
+            atm_iv = _atm_iv(group, underlying_price)
+            df.loc[group.index, "atm_iv"] = atm_iv
+            if atm_iv:
+                history_rows.append({
+                    "symbol": symbol, "expiration": expiration,
+                    "snapshot_date": snapshot_date, "atm_iv": atm_iv,
+                })
 
-        history = get_atm_iv_history(symbol, expiration, snapshot_date)
-        if atm_iv is not None and len(history) >= 5:
-            percentile = round(100 * sum(1 for h in history if h <= atm_iv) / len(history), 1)
-            df.loc[group.index, "atm_iv_90d_percentile"] = percentile
+            history = get_atm_iv_history(symbol, expiration, snapshot_date)
+            if atm_iv is not None and len(history) >= 5:
+                percentile = round(100 * sum(1 for h in history if h <= atm_iv) / len(history), 1)
+                df.loc[group.index, "atm_iv_90d_percentile"] = percentile
 
-        for opt_type, col in (("put", "skew_put_pct_of_atm"), ("call", "skew_call_pct_of_atm")):
-            side = group[(group["type"] == opt_type) & group["delta"].notna()]
-            if side.empty or not atm_iv:
-                continue
-            closest = side.iloc[(side["delta"].abs() - SKEW_DELTA_TARGET).abs().argsort()[:1]]
-            otm_iv = closest["implied_volatility"].iloc[0]
-            df.loc[closest.index, col] = round(100 * otm_iv / atm_iv, 1)
+            for opt_type, col in (("put", "skew_put_pct_of_atm"), ("call", "skew_call_pct_of_atm")):
+                side = group[(group["type"] == opt_type) & group["delta"].notna()]
+                if side.empty or not atm_iv:
+                    continue
+                closest = side.iloc[(side["delta"].abs() - SKEW_DELTA_TARGET).abs().argsort()[:1]]
+                otm_iv = closest["implied_volatility"].iloc[0]
+                df.loc[group.index, col] = round(100 * otm_iv / atm_iv, 1)
+        except Exception as exc:
+            group_failures += 1
+            print(f"IV/skew computation failed for {symbol!r} {expiration!r}: {exc}")
+            continue
+
+    if group_failures:
+        print(f"IV/skew computation: {group_failures} failed of {n_groups} groups")
 
     if history_rows:
         upsert_atm_iv_history(history_rows)
@@ -139,6 +170,7 @@ def compute_signals(rows, snapshot_date):
         "delta", "gamma", "theta", "vega", "rho",
         "atm_iv", "atm_iv_90d_percentile",
         "skew_put_pct_of_atm", "skew_call_pct_of_atm",
+        "last_trade_date", "zero_bid", "wide_spread",
     ]
     return signals[out_cols].sort_values(["symbol", "expiration", "type", "strike"])
 
@@ -162,23 +194,29 @@ def run_merge_and_score():
     merge_result = merge_new_snapshots()
     print(f"Merged {merge_result['rows']} rows from {merge_result['files']} new file(s)")
 
-    today_str = date.today().isoformat()
-    rows, session = get_latest_snapshot_rows(today_str)
-    if not rows:
-        print(f"No snapshot rows for {today_str} yet -- nothing to score")
-        return {"status": "no_data", "date": today_str}
+    target_date = get_most_recent_snapshot_date()
+    if target_date is None:
+        print("No snapshot rows merged yet -- nothing to score")
+        return {"status": "no_data", "date": None}
 
-    print(f"Scoring {len(rows)} contracts from today's '{session}' session...")
-    signals = compute_signals(rows, today_str)
+    rows, session = get_latest_snapshot_rows(target_date)
+    if not rows:
+        # Shouldn't happen (target_date came from options_chains itself),
+        # but keep the guard for safety/symmetry with the original check.
+        print(f"No snapshot rows for {target_date} yet -- nothing to score")
+        return {"status": "no_data", "date": target_date}
+
+    print(f"Scoring {len(rows)} contracts from {target_date}'s '{session}' session...")
+    signals = compute_signals(rows, target_date)
 
     SIGNALS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = SIGNALS_DIR / f"{today_str}.csv"
+    out_path = SIGNALS_DIR / f"{target_date}.csv"
     signals.to_csv(out_path, index=False)
     print(f"Wrote {len(signals)} signal rows to {out_path}")
 
-    status = commit_and_push([out_path], f"Options signals: {today_str} ({len(signals)} contracts)")
+    status = commit_and_push([out_path], f"Options signals: {target_date} ({len(signals)} contracts)")
     print(f"Publish status: {status}")
-    return {"status": status, "date": today_str, "rows": len(signals)}
+    return {"status": status, "date": target_date, "rows": len(signals)}
 
 
 if __name__ == "__main__":
