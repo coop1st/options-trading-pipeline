@@ -1,0 +1,67 @@
+name: Options snapshot fetch
+
+# Runs entirely in the cloud -- no local machine needed. Fetches options
+# chains for the current watchlist 3x per trading day (open/mid/close) and
+# commits the result as a small dated CSV. The local merge script
+# (pipeline/merge_and_score.py) picks this up later, whenever that machine
+# is next on.
+
+on:
+  schedule:
+    # UTC times below assume EDT (UTC-4); expect ~1hr drift once EST
+    # (UTC-5) begins in November -- a few minutes either side of
+    # open/mid/close doesn't materially change the snapshot's value, same
+    # reasoning the Stocks project's weekly-price-fetch.yml already uses.
+    - cron: "35 13 * * 1-5"  # ~9:35am ET market open
+    - cron: "30 16 * * 1-5"  # ~12:30pm ET midday
+    - cron: "55 19 * * 1-5"  # ~3:55pm ET market close
+  workflow_dispatch:
+    inputs:
+      session:
+        description: "Session to fetch (open, mid, close)"
+        required: true
+        default: "close"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Determine session
+        id: session
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "session=${{ github.event.inputs.session }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "35 13 * * 1-5" ]; then
+            echo "session=open" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event.schedule }}" = "30 16 * * 1-5" ]; then
+            echo "session=mid" >> "$GITHUB_OUTPUT"
+          else
+            echo "session=close" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch options snapshot
+        run: python cloud/fetch_options_snapshot.py ${{ steps.session.outputs.session }}
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/github_sync/options_snapshots/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Options snapshot: ${{ steps.session.outputs.session }} $(date -u +%Y-%m-%d)"
+            git push
+          fi
