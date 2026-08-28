@@ -132,6 +132,17 @@ def get_atm_iv_history(symbol, expiration, before_date, window_days=90):
         return [r[0] for r in rows if r[0] is not None]
 
 
+def get_most_recent_snapshot_date():
+    """Returns the most recent snapshot_date present in options_chains (as
+    an ISO date string), or None if the table is empty. Used instead of
+    date.today() to decide what to score -- the script runs "whenever the
+    PC is next on, overnight," so today's date and the most recently
+    merged snapshot's date are often not the same."""
+    with get_connection() as conn:
+        row = conn.execute("SELECT MAX(snapshot_date) FROM options_chains").fetchone()
+        return row[0] if row and row[0] is not None else None
+
+
 def get_latest_snapshot_rows(snapshot_date):
     """Returns (rows, session) for the most complete session captured that
     day, preferring close > mid > open -- if a symbol was only captured
