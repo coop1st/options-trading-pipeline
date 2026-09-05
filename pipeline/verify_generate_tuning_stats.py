@@ -8,7 +8,7 @@ Run: python pipeline/verify_generate_tuning_stats.py
 import sys
 from datetime import date
 
-from generate_tuning_stats import compute_criterion_correlations
+from generate_tuning_stats import compute_criterion_correlations, compute_weight_sensitivity
 
 ALL_OK = True
 
@@ -41,6 +41,20 @@ def main():
     sparse_trades = [_trade(0.5, risk_reward=80.0)]
     corr3 = compute_criterion_correlations(sparse_trades)
     check("fewer than 3 pairs -> correlation is None", corr3["risk_reward"]["correlation"] is None)
+
+    # Weight sensitivity: a criterion that strongly predicts realized_pct
+    # should show improved correlation when its weight is doubled.
+    strong_trades = [
+        {"realized_pct": i * 0.1, "iv_richness": i * 10.0, "skew_quality": 50.0,
+         "risk_reward": 50.0, "pop_proxy": 50.0, "term_structure": 50.0,
+         "liquidity": 50.0, "directional_alignment": 50.0}
+        for i in range(1, 10)
+    ]
+    sensitivity = compute_weight_sensitivity(strong_trades)
+    check("doubling a strongly-predictive criterion's weight improves (or holds) correlation",
+          sensitivity["iv_richness"]["doubled_weight_correlation"] >= sensitivity["iv_richness"]["baseline_correlation"])
+    check("halving a strongly-predictive criterion's weight worsens (or holds) correlation",
+          sensitivity["iv_richness"]["halved_weight_correlation"] <= sensitivity["iv_richness"]["baseline_correlation"])
 
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
