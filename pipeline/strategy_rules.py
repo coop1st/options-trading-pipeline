@@ -283,3 +283,74 @@ def build_calendars(signals, snapshot_date, get_term_structure_history, min_fron
                         "tilt": None,
                     })
     return candidates
+
+
+def build_double_diagonals(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, delta_min, delta_max):
+    """spreads-and-combinations.md SS5. Same term-structure gate as
+    build_calendars (front month elevated relative to a further-out back
+    month). Double diagonal only -- a single-sided diagonal has no
+    book-given entry rule (spec Non-goals)."""
+    candidates = []
+    target_mid_delta = (delta_min + delta_max) / 2
+
+    for symbol, sym_df in signals.groupby("symbol"):
+        expirations = sorted(sym_df["expiration"].unique())
+        for i, front_exp in enumerate(expirations):
+            if _dte(front_exp, snapshot_date) < min_front_days:
+                continue
+            front_df = sym_df[sym_df["expiration"] == front_exp]
+            front_atm_iv_series = front_df["atm_iv"].dropna()
+            if front_atm_iv_series.empty:
+                continue
+            front_atm_iv = float(front_atm_iv_series.iloc[0])
+
+            for back_exp in expirations[i + 1:]:
+                back_df = sym_df[sym_df["expiration"] == back_exp]
+                back_atm_iv_series = back_df["atm_iv"].dropna()
+                if back_atm_iv_series.empty:
+                    continue
+                back_atm_iv = float(back_atm_iv_series.iloc[0])
+
+                history = get_term_structure_history(symbol, front_exp, back_exp)
+                if len(history) < 5:
+                    continue
+                normal_spread = sum(history) / len(history)
+                if front_atm_iv == 0:
+                    continue
+                premium = ((front_atm_iv - back_atm_iv) - normal_spread) / front_atm_iv
+                if premium < long_premium_min:
+                    continue
+
+                front_call_band = front_df[(front_df["type"] == "call") & (front_df["delta"] >= delta_min) & (front_df["delta"] <= delta_max)]
+                front_put_band = front_df[(front_df["type"] == "put") & (front_df["delta"].abs() >= delta_min) & (front_df["delta"].abs() <= delta_max)]
+                short_call = _nearest_by_abs_delta(front_call_band, target_mid_delta)
+                short_put = _nearest_by_abs_delta(front_put_band, target_mid_delta)
+                if short_call is None or short_put is None:
+                    continue
+
+                back_calls = back_df[back_df["type"] == "call"]
+                back_puts = back_df[back_df["type"] == "put"]
+                long_call = _nearest_strike_row(back_calls, short_call["strike"] + 10)
+                long_put = _nearest_strike_row(back_puts, short_put["strike"] - 10)
+                if long_call is None or long_put is None:
+                    continue
+
+                net_debit = (
+                    long_call["last_price"] - short_call["last_price"]
+                    + long_put["last_price"] - short_put["last_price"]
+                )
+                candidates.append({
+                    "symbol": symbol,
+                    "strategy": "double diagonal",
+                    "expiration": front_exp,
+                    "this_expiration_atm_iv": front_atm_iv,
+                    "legs": [
+                        _leg(short_call, "short call"), _leg(long_call, "long call"),
+                        _leg(short_put, "short put"), _leg(long_put, "long put"),
+                    ],
+                    "max_loss": abs(net_debit) * 100,
+                    "premium": premium,
+                    "net_short": True,
+                    "tilt": None,
+                })
+    return candidates
