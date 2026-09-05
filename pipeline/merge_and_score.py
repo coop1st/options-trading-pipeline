@@ -29,6 +29,7 @@ from db import (
     mark_merged,
     upsert_atm_iv_history,
     upsert_options_chain,
+    upsert_skew_history,
 )
 from greeks import compute_greeks
 
@@ -124,6 +125,7 @@ def compute_signals(rows, snapshot_date):
     df["skew_put_pct_of_atm"] = None
     df["skew_call_pct_of_atm"] = None
     history_rows = []
+    skew_history_rows = []
     group_failures = 0
     n_groups = 0
 
@@ -144,13 +146,19 @@ def compute_signals(rows, snapshot_date):
                 percentile = round(100 * sum(1 for h in history if h <= atm_iv) / len(history), 1)
                 df.loc[group.index, "atm_iv_90d_percentile"] = percentile
 
+            skew_row = {"symbol": symbol, "expiration": expiration, "snapshot_date": snapshot_date,
+                        "skew_put_pct_of_atm": None, "skew_call_pct_of_atm": None}
             for opt_type, col in (("put", "skew_put_pct_of_atm"), ("call", "skew_call_pct_of_atm")):
                 side = group[(group["type"] == opt_type) & group["delta"].notna()]
                 if side.empty or not atm_iv:
                     continue
                 closest = side.iloc[(side["delta"].abs() - SKEW_DELTA_TARGET).abs().argsort()[:1]]
                 otm_iv = closest["implied_volatility"].iloc[0]
-                df.loc[group.index, col] = round(100 * otm_iv / atm_iv, 1)
+                skew_value = round(100 * otm_iv / atm_iv, 1)
+                df.loc[group.index, col] = skew_value
+                skew_row[col] = skew_value
+            if skew_row["skew_put_pct_of_atm"] is not None or skew_row["skew_call_pct_of_atm"] is not None:
+                skew_history_rows.append(skew_row)
         except Exception as exc:
             group_failures += 1
             print(f"IV/skew computation failed for {symbol!r} {expiration!r}: {exc}")
@@ -161,6 +169,8 @@ def compute_signals(rows, snapshot_date):
 
     if history_rows:
         upsert_atm_iv_history(history_rows)
+    if skew_history_rows:
+        upsert_skew_history(skew_history_rows)
 
     signals = df[~df["low_liquidity"]].copy()
     out_cols = [
