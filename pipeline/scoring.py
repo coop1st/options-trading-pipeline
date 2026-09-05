@@ -4,13 +4,25 @@ maps to a 0-100 sub-score; family/criterion cells the books don't
 support default to a neutral 50 rather than a fabricated number, per the
 spec's explicit policy.
 """
+import math
+
 NEUTRAL = 50.0
 
 _DIRECTIONAL_FAMILIES = ("vertical put credit spread", "vertical call credit spread", "long call", "long put")
 
 
+def _valid(x):
+    """True if x is a usable number -- excludes both None and NaN. A
+    blank cell in signals.csv (e.g. atm_iv_90d_percentile before 5 days
+    of history accumulate) round-trips through pandas as NaN, not None,
+    so checking only `is not None` silently lets NaN poison a sum/average
+    -- this bug shipped with sub-project 3 and only surfaced once
+    composite_score started being persisted (sub-project 4)."""
+    return x is not None and not (isinstance(x, float) and math.isnan(x))
+
+
 def _iv_richness(candidate):
-    percentiles = [leg["atm_iv_90d_percentile"] for leg in candidate["legs"] if leg["atm_iv_90d_percentile"] is not None]
+    percentiles = [leg["atm_iv_90d_percentile"] for leg in candidate["legs"] if _valid(leg["atm_iv_90d_percentile"])]
     if not percentiles:
         return NEUTRAL
     percentile = sum(percentiles) / len(percentiles)
@@ -29,14 +41,14 @@ def _skew_quality(candidate):
     give no explicit 0-100 scale for this."""
     strategy = candidate["strategy"]
     if strategy == "vertical put credit spread":
-        vals = [leg["skew_put_pct_of_atm"] for leg in candidate["legs"] if leg["skew_put_pct_of_atm"] is not None]
+        vals = [leg["skew_put_pct_of_atm"] for leg in candidate["legs"] if _valid(leg["skew_put_pct_of_atm"])]
     elif strategy == "vertical call credit spread":
-        vals = [leg["skew_call_pct_of_atm"] for leg in candidate["legs"] if leg["skew_call_pct_of_atm"] is not None]
+        vals = [leg["skew_call_pct_of_atm"] for leg in candidate["legs"] if _valid(leg["skew_call_pct_of_atm"])]
     elif strategy == "iron condor":
         vals = [
             leg[k] for leg in candidate["legs"]
             for k in ("skew_put_pct_of_atm", "skew_call_pct_of_atm")
-            if leg[k] is not None
+            if _valid(leg[k])
         ]
     else:
         return NEUTRAL  # calendars/diagonals: skew "roughly nets out" (spreads-and-combinations.md SS4); directional: no computable book rule
