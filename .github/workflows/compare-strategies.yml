@@ -25,5 +25,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r pipeline/requirements.txt
 
+      - name: Configure git identity for the commit_and_push step
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
       - name: Compare strategies
         run: python pipeline/compare_strategies.py
