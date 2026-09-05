@@ -8,7 +8,7 @@ Run: python pipeline/verify_generate_tuning_stats.py
 import sys
 from datetime import date
 
-from generate_tuning_stats import compute_criterion_correlations, compute_weight_sensitivity
+from generate_tuning_stats import compute_criterion_correlations, compute_weight_sensitivity, sweep_directional_thresholds
 
 ALL_OK = True
 
@@ -55,6 +55,21 @@ def main():
           sensitivity["iv_richness"]["doubled_weight_correlation"] >= sensitivity["iv_richness"]["baseline_correlation"])
     check("halving a strongly-predictive criterion's weight worsens (or holds) correlation",
           sensitivity["iv_richness"]["halved_weight_correlation"] <= sensitivity["iv_richness"]["baseline_correlation"])
+
+    # Exit-side sweep: a known synthetic long-call price path should
+    # pick out whichever grid point performs best against it.
+    long_call_legs = {"trade-1": ("long call", [
+        {"leg_role": "long call", "entry_price": 3.00, "contract_symbol": "TEST260601C00100000",
+         "expiration": "2026-06-01", "strike": 100.0},
+    ])}
+    # Real price hits 160% of premium (4.80) -- a target_pct of 1.5
+    # should show a win here; the default 2.0 would not.
+    signals_by_date = {"2026-03-01": {"TEST260601C00100000": 4.80}}
+    sweep = sweep_directional_thresholds(long_call_legs, [0.50], [1.5, 2.0], signals_by_date, date(2026, 3, 1))
+    check("lower target_pct grid point captures a win the default would miss",
+          sweep[(0.50, 1.5)]["win_rate"] == 1.0)
+    check("higher (default) target_pct grid point shows no win yet for the same trade",
+          sweep[(0.50, 2.0)]["win_rate"] in (0.0, None))
 
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
