@@ -23,6 +23,16 @@ LEDGER_URL = (
     "main/data/github_sync/daytrade_ledger/stock_price_ledger.csv"
 )
 MAX_DTE_DAYS = 75
+
+# Tail-hedge instruments for the portfolio-insurance reminder (New Data
+# Prerequisites item 4) -- priority-ordered per hedge type in
+# pipeline/screen_trades.py, not here; this just makes sure they're
+# fetched. Never suggested by the day-trade shortlist, so they'd
+# otherwise never appear in the watchlist. Existing per-symbol
+# skip-and-continue handling below is the fallback mechanism itself: if
+# ^SPX or ^VIX isn't fetchable via yfinance on a given day, it's simply
+# absent from that day's snapshot, same as any other skipped symbol.
+TAIL_HEDGE_SYMBOLS = ["^SPX", "SPY", "^VIX", "VXX", "UVXY"]
 PACE_SECONDS = 1.5
 OUT_COLS = [
     "symbol", "expiration", "contract_symbol", "strike", "type",
@@ -89,8 +99,8 @@ def main():
         sys.exit(1)
 
     today = date.today()
-    symbols = fetch_watchlist()  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
-    print(f"Watchlist: {len(symbols)} symbols")
+    symbols = sorted(set(fetch_watchlist()) | set(TAIL_HEDGE_SYMBOLS))  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
+    print(f"Watchlist: {len(symbols)} symbols (including {len(TAIL_HEDGE_SYMBOLS)} tail-hedge instruments)")
 
     all_rows = []
     skipped = []
