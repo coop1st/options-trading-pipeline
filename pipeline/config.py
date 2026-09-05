@@ -126,3 +126,21 @@ TAIL_HEDGE_PRIORITY = {
     "equity downside": ["^SPX", "SPY"],
     "volatility spike": ["^VIX", "VXX", "UVXY"],
 }
+
+# Exit-rule simulation thresholds (docs/superpowers/specs/2026-09-05-strategy-comparison-design.md)
+CONDOR_EXIT_TARGET_PCT = 0.55
+CONDOR_EXIT_TIME_DTE = 30
+VERTICAL_EXIT_TARGET_PCT = 0.10
+CALENDAR_EXIT_TARGET_PCT = 0.05
+CALENDAR_EXIT_STOP_PCT = 0.10
+DIAGONAL_EXIT_TARGET_PCT = 0.05
+DIAGONAL_EXIT_STOP_PCT = 0.10
+# directional-strategies.md SS6: "individually-chosen stop-loss...
+# below the theoretical max loss" -- no book-given fraction, so 50%/200%
+# of premium are this spec's own choice (see the design spec's rationale).
+DIRECTIONAL_STOP_PCT = 0.50
+DIRECTIONAL_TARGET_PCT = 2.00
+
+# Minimum terminal trades before an aggregate stat is reported as
+# meaningful rather than flagged "too few trades yet."
+MIN_TERMINAL_TRADES_FOR_STATS = 5
