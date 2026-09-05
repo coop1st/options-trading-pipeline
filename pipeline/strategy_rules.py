@@ -181,3 +181,38 @@ def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_
                 "tilt": None,
             })
     return candidates
+
+
+def build_directional_longs(signals, bias, min_daily_volume):
+    """directional-strategies.md SS1-2, SS5. Hard gates: a bullish or
+    bearish tilt present, underlying daily volume above the floor. No
+    DTE gate -- the books frame this via the three-part price/time/
+    volatility forecast, not a DTE rule, so none is invented here."""
+    candidates = []
+    for symbol, sym_df in signals.groupby("symbol"):
+        tilt = bias.get(symbol)
+        if tilt is None:
+            continue
+        if _underlying_daily_volume(sym_df) <= min_daily_volume:
+            continue
+
+        opt_type = "call" if tilt == "bullish" else "put"
+        atm_candidates = sym_df[sym_df["type"] == opt_type]
+        atm_row = _nearest_by_abs_delta(atm_candidates, 0.50)
+        if atm_row is None:
+            continue
+
+        atm_iv_row = sym_df[sym_df["expiration"] == atm_row["expiration"]]["atm_iv"].dropna()
+        this_expiration_atm_iv = float(atm_iv_row.iloc[0]) if not atm_iv_row.empty else None
+
+        candidates.append({
+            "symbol": symbol,
+            "strategy": f"long {opt_type}",
+            "expiration": atm_row["expiration"],
+            "this_expiration_atm_iv": this_expiration_atm_iv,
+            "legs": [_leg(atm_row, f"long {opt_type}")],
+            "max_loss": atm_row["last_price"] * 100,
+            "net_short": False,
+            "tilt": tilt,
+        })
+    return candidates
