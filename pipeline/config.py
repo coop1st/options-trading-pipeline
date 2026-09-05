@@ -96,3 +96,11 @@ CONDOR_DELTA_MIN = 0.10
 CONDOR_DELTA_MAX = 0.15
 CONDOR_MIN_DTE = 45
 CONDOR_MAX_DTE = 75
+
+# spreads-and-combinations.md SS4: calendar entry thresholds. 10 days is
+# this spec's own operationalization of "avoid the final days before
+# expiration" -- not a book number.
+CALENDAR_MIN_FRONT_DAYS = 10
+CALENDAR_LONG_PREMIUM_MIN = 0.10
+CALENDAR_LONG_PREMIUM_MAX = 0.25
+CALENDAR_SHORT_DISCOUNT = 0.10
