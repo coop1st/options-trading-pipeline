@@ -5,10 +5,12 @@ Claude Code sessions. Everything referenced here is committed and pushed
 to `master` at https://github.com/coop1st/options-trading-pipeline
 (public repo). Read this file first, then the specs/plans it points to.
 
-**All four originally-planned sub-projects are built and live. Sub-project
-5 (monthly adaptive-tuning suggestions) has a written, reviewed-and-
-committed design spec, but no implementation plan or code yet** — see
-"What's next" below and `docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md`.
+**All five planned sub-projects are built and live.** Sub-project 5
+(monthly adaptive-tuning suggestions) shipped its full implementation
+this session — see its section below and
+`docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md` /
+`docs/superpowers/plans/2026-09-05-adaptive-tuning.md` (7 tasks, all
+complete).
 
 **Two things shipped immediately as sub-project 5's prerequisites, ahead
 of its own implementation plan** (same "don't lose history waiting"
@@ -145,21 +147,85 @@ worth knowing about**:
    `github-actions[bot]` identity the project's other cloud workflows
    already use.
 
+**Sub-project 5 (Adaptive Tuning Suggestions) — complete, verified live.**
+Spec at `docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md`,
+implementation plan at `docs/superpowers/plans/2026-09-05-adaptive-tuning.md`
+(7 tasks, all complete, executed inline). Built on a three-tier parameter
+classification that is the whole system's protective boundary:
+
+- **Tier 1** (book-verbatim thresholds, e.g. the condor's 55%/30-DTE/
+  10-15Δ) — never touchable, never suggested.
+- **Tier 2** (this project's own flagged implementation guesses) — split
+  into entry-side (DTE windows, delta bands, spread widths in
+  `strategy_rules.py`'s builders — **not swept in v1**, would require
+  reconstructing hypothetical candidates from raw historical chains, a
+  materially harder capability that doesn't exist) and exit-side (only
+  `DIRECTIONAL_STOP_PCT`/`DIRECTIONAL_TARGET_PCT` in `track_outcomes.py`'s
+  directional-long evaluator — the only Tier-2 pair actually swept).
+- **Tier 3** (composite score's 7 criteria weights, currently equal) —
+  eligible for sensitivity analysis, never auto-applied.
+
+What's live:
+
+- **`pipeline/generate_tuning_stats.py`** (monthly,
+  `.github/workflows/generate-tuning-stats.yml`, cron 1st of month
+  21:00 UTC, cloud-only, no external fetch): computes Spearman
+  correlations between each of the 7 scoring criteria and `realized_pct`,
+  a weight-sensitivity check (doubling/halving each criterion's weight
+  and comparing correlation against the equal-weight baseline), a
+  counterfactual sweep of `DIRECTIONAL_STOP_PCT_GRID` ×
+  `DIRECTIONAL_TARGET_PCT_GRID` against already-resolved directional
+  trades' real price paths (via `track_outcomes.py`'s own evaluator, reused
+  through a new `evaluator_overrides` parameter), and label-performance
+  aggregation — publishing raw, mechanical
+  `data/github_sync/options_ledger/tuning_stats_latest.json`. Never
+  authors a suggestion itself. Requires `MIN_TRADES_FOR_TUNING_SUGGESTION
+  = 10` scoreable trades before the exit-side sweep even runs.
+- **`selection_label`**: assigned at recommendation time in
+  `screen_trades.py` via `scoring.py`'s `compute_selection_label()`,
+  naming which of the 4 "thesis" criteria (`iv_richness`, `skew_quality`,
+  `term_structure`, `directional_alignment`) scored ≥65
+  (`LABEL_THESIS_THRESHOLD`) — e.g. `"rich_iv+rich_skew"`, or
+  `"no_dominant_thesis"` if none did. `compare_strategies.py` reports win
+  rate/avg realized P&L by label alongside its by-family/by-criterion
+  views, feeding label-filtering suggestions.
+- **New monthly cloud routine**, "Monthly tuning review", `RemoteTrigger`
+  id `trig_01LRt3LyVSeyNCk2mqG4aQF3`, cron `30 21 1 * *` (1st of month,
+  21:30 UTC, after `generate-tuning-stats.yml`'s 21:00 UTC run). Reads
+  `tuning_stats_latest.json`, applies the three hard safety rules (never
+  suggest a Tier-1 change, never edit `config.py`/`scoring.py` directly —
+  always propose via a committed markdown file, never present
+  sub-evidence-bar findings as suggestions), writes and commits
+  `data/github_sync/options_ledger/tuning_suggestions_{YYYY-MM}.md`, and
+  drafts (never sends) a Gmail summary. Verified live on first manual
+  trigger: correctly reported 0 terminal trades and "nothing to suggest
+  this month" rather than fabricating a conclusion — committed as
+  `9fb55f5`, file and draft both accurate.
+- **Propose-never-auto-apply policy**, mirroring the Stocks project's
+  "Pick Tuning Review" precedent: suggestions only ever land as a
+  reviewable file + email, never as a direct code edit.
+
+**Two real pre-existing bugs found and fixed during sub-project 5's
+design/pre-work, both worth knowing about**:
+1. **`build_iron_condors`/`build_calendars`/`build_double_diagonals`**
+   hardcoded `"tilt": None` and never received the real bias signal, so
+   `directional_alignment` was a constant `100.0` for these 3 families —
+   contradicting sub-project 3's own approved spec. Fixed by threading
+   `bias` through all three builders; verified synthetically and against
+   real data.
+2. **Sign-convention bug caught during spec self-review** (before any
+   code was written): a single `cost_to_close_now` formula was being
+   applied to both credit and debit structures, producing backwards
+   numbers for debit structures. Split into `credit_received`/
+   `cost_to_close_now` (credit) vs. `debit_paid`/`current_value_now`
+   (debit); also caught short calendar being misclassified as debit when
+   it's actually credit (buys cheap front, sells pricier back).
+
 ## What's next
 
-- **Sub-project 5 — spec written, reviewed, and committed; no plan yet.**
-  `docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md` designs a
-  monthly tuning-suggestion system built on a three-tier parameter
-  classification (book-verbatim numbers are never touched; this
-  project's own flagged implementation guesses and the composite score's
-  weighting are eligible for evidence-gated suggestions) — never
-  auto-applies anything, always a committed monthly file + digest email
-  for manual review. **Next step on resume: `writing-plans` for this
-  spec** (last asked of the user, awaiting their go-ahead as of this
-  handover). Needs sub-project 4's outcome data to actually accumulate
-  before any suggestion can fire — every terminal-trade count is
-  currently 0, so the system will run and correctly report "not enough
-  evidence yet" for a while regardless of when the plan ships.
+- **All five sub-projects are now built and live — no implementation
+  work outstanding.** The system runs itself monthly/weekly/daily; the
+  only remaining "next steps" are data accumulation, not code:
 - **Let terminal trades start accumulating** — no action needed, just
   time: the SPY iron condor recommended 2026-09-05 needs to hit its 55%
   target, its max-loss ceiling, or 30 DTE before `track_outcomes.py` has
@@ -201,18 +267,20 @@ or similar to get the fix without modifying the cloud script itself.
 - `docs/extraction-notes/` — per-chapter extraction notes (26 files, both
   books), traceability layer behind the skill
 - `docs/superpowers/specs/` — 5 design specs (playbook, pipeline,
-  strategy engine, strategy comparison, adaptive tuning); the last has
-  no implementation plan yet
-- `docs/superpowers/plans/` — 4 implementation plans, all fully executed
+  strategy engine, strategy comparison, adaptive tuning), all with
+  implementation plans fully executed
+- `docs/superpowers/plans/` — 5 implementation plans, all fully executed
 - `pipeline/` — local/cloud-shared pipeline code: `config.py`, `db.py`,
   `greeks.py`, `merge_and_score.py`, `atr.py`, `directional_bias.py`,
   `strategy_rules.py`, `scoring.py`, `screen_trades.py`,
-  `track_outcomes.py`, `compare_strategies.py`, plus `verify_greeks.py`/
-  `verify_scoring.py`/`verify_track_outcomes.py`/`verify_compare_strategies.py`
+  `track_outcomes.py`, `compare_strategies.py`, `generate_tuning_stats.py`,
+  plus `verify_greeks.py`/`verify_scoring.py`/`verify_track_outcomes.py`/
+  `verify_compare_strategies.py`/`verify_generate_tuning_stats.py`
 - `cloud/` — GitHub-Actions-runnable scripts: `fetch_options_snapshot.py`,
   `fetch_daily_true_range.py`
 - `data/db/options.db` — gitignored SQLite DB, regenerable from published
   snapshots
 - `data/github_sync/` — published pipeline data: `options_snapshots/`,
   `signals/`, `daily_true_range/`, `options_ledger/` (recommendation
-  ledger + `strategy_performance_report.csv`)
+  ledger, `strategy_performance_report.csv`, `tuning_stats_latest.json`,
+  `tuning_suggestions_{YYYY-MM}.md`)
