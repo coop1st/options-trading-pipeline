@@ -84,16 +84,16 @@ def build_all_candidates(signals, snapshot_date, bias):
         VERTICAL_DELTA_BAND, VERTICAL_SPREAD_WIDTHS, EQUITY_MIN_DAILY_VOLUME,
     )
     candidates += build_iron_condors(
-        signals, snapshot_date, get_atr, CONDOR_MIN_DTE, CONDOR_MAX_DTE, CONDOR_DELTA_MIN, CONDOR_DELTA_MAX,
+        signals, snapshot_date, get_atr, CONDOR_MIN_DTE, CONDOR_MAX_DTE, CONDOR_DELTA_MIN, CONDOR_DELTA_MAX, bias,
     )
     candidates += build_directional_longs(signals, bias, EQUITY_MIN_DAILY_VOLUME)
     candidates += build_calendars(
         signals, snapshot_date, get_term_history, CALENDAR_MIN_FRONT_DAYS,
-        CALENDAR_LONG_PREMIUM_MIN, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_SHORT_DISCOUNT,
+        CALENDAR_LONG_PREMIUM_MIN, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_SHORT_DISCOUNT, bias,
     )
     candidates += build_double_diagonals(
         signals, snapshot_date, get_term_history, CALENDAR_MIN_FRONT_DAYS,
-        CALENDAR_LONG_PREMIUM_MIN, CONDOR_DELTA_MIN, CONDOR_DELTA_MAX,
+        CALENDAR_LONG_PREMIUM_MIN, CONDOR_DELTA_MIN, CONDOR_DELTA_MAX, bias,
     )
 
     for c in candidates:

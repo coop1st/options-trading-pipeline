@@ -117,13 +117,18 @@ def build_vertical_credit_spreads(signals, snapshot_date, bias, min_dte, max_dte
     return candidates
 
 
-def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_min, delta_max):
+def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_min, delta_max, bias):
     """income-strategies.md SS4 / spreads-and-combinations.md SS2. Hard
     gates: delta_min-delta_max on both short strikes, min_dte-max_dte,
     and today's ATM IV > the underlying's 14-day ATR -- gated only once
     get_atr(symbol) returns a value; until then this gate is skipped for
     that symbol with a visible note, matching the atm_iv_90d_percentile
-    precedent from sub-project 2."""
+    precedent from sub-project 2. `bias` feeds scoring.py's
+    directional_alignment criterion (spec: "a strong tilt on the
+    underlying is a mild negative for a neutral structure, not a gate")
+    -- it was hardcoded to None here until this was caught during
+    sub-project 5's label-design review, silently making that criterion
+    a constant for this entire family."""
     candidates = []
     target_mid_delta = (delta_min + delta_max) / 2
 
@@ -178,7 +183,7 @@ def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_
                 "short_call_delta": short_call["delta"],
                 "short_put_delta": short_put["delta"],
                 "net_short": True,
-                "tilt": None,
+                "tilt": bias.get(symbol),
             })
     return candidates
 
@@ -218,14 +223,16 @@ def build_directional_longs(signals, bias, min_daily_volume):
     return candidates
 
 
-def build_calendars(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, long_premium_max, short_discount):
+def build_calendars(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, long_premium_max, short_discount, bias):
     """spreads-and-combinations.md SS4. Hard gates: front-month premium
     (>=long_premium_min, excluded above long_premium_max without manual
     review) or discount (>=short_discount) to its 'normal' relationship
     with the back month, front leg >= min_front_days from expiration,
     and enough accumulated term-structure-spread history to judge
     'normal' at all -- until then this symbol/expiration pair is skipped
-    with a visible note."""
+    with a visible note. `bias` feeds scoring.py's directional_alignment
+    criterion the same way it does for iron condors -- see that
+    function's docstring for the bug this fixes."""
     candidates = []
     for symbol, sym_df in signals.groupby("symbol"):
         for opt_type, type_df in sym_df.groupby("type"):
@@ -280,16 +287,17 @@ def build_calendars(signals, snapshot_date, get_term_structure_history, min_fron
                         "max_loss": abs(net_debit) * 100,
                         "premium": premium,
                         "net_short": strategy == "long calendar",
-                        "tilt": None,
+                        "tilt": bias.get(symbol),
                     })
     return candidates
 
 
-def build_double_diagonals(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, delta_min, delta_max):
+def build_double_diagonals(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, delta_min, delta_max, bias):
     """spreads-and-combinations.md SS5. Same term-structure gate as
     build_calendars (front month elevated relative to a further-out back
     month). Double diagonal only -- a single-sided diagonal has no
-    book-given entry rule (spec Non-goals)."""
+    book-given entry rule (spec Non-goals). `bias` feeds
+    directional_alignment -- see build_iron_condors' docstring."""
     candidates = []
     target_mid_delta = (delta_min + delta_max) / 2
 
@@ -351,6 +359,6 @@ def build_double_diagonals(signals, snapshot_date, get_term_structure_history, m
                     "max_loss": abs(net_debit) * 100,
                     "premium": premium,
                     "net_short": True,
-                    "tilt": None,
+                    "tilt": bias.get(symbol),
                 })
     return candidates
