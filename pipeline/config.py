@@ -75,3 +75,16 @@ MAX_DTE_DAYS = 75
 # slow-moving 14-day average, so a weekly local recompute is enough.
 ATR_HISTORY_WINDOW = 14
 ATR_REFRESH_DAYS = 7
+
+# Strategy-engine constants (docs/superpowers/specs/2026-09-05-strategy-engine-design.md)
+
+# directional-strategies.md SS5: equity underlying-liquidity floor.
+EQUITY_MIN_DAILY_VOLUME = 50000
+
+# income-strategies.md SS3 / spreads-and-combinations.md SS1: vertical
+# credit spread DTE window and delta band (band, not a fixed delta --
+# strike selection is a scoring matter, not a gate).
+VERTICAL_MIN_DTE = 30
+VERTICAL_MAX_DTE = 60
+VERTICAL_DELTA_BAND = (0.10, 0.30)
+VERTICAL_SPREAD_WIDTHS = [5, 10]
