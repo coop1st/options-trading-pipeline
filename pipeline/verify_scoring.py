@@ -8,6 +8,7 @@ inspect output, same convention as verify_greeks.py.
 
 Run: python pipeline/verify_scoring.py
 """
+import math
 import sys
 
 from scoring import score_candidate
@@ -68,6 +69,15 @@ def main():
     _, b_far = score_candidate(far_otm, MIN_VOLUME, MIN_OI, PREMIUM_MIN, PREMIUM_MAX)
     _, b_near = score_candidate(near_atm, MIN_VOLUME, MIN_OI, PREMIUM_MIN, PREMIUM_MAX)
     all_ok &= check("further-OTM short strike scores higher pop_proxy", b_far["pop_proxy"] > b_near["pop_proxy"])
+
+    # Regression: a NaN atm_iv_90d_percentile (how pandas represents a
+    # blank CSV cell -- not None) must not poison composite_score. This
+    # shipped broken in sub-project 3 and only surfaced once
+    # composite_score started being persisted in sub-project 4.
+    nan_iv = {**low_iv, "legs": [_leg(atm_iv_90d_percentile=float("nan"))]}
+    score_nan, breakdown_nan = score_candidate(nan_iv, MIN_VOLUME, MIN_OI, PREMIUM_MIN, PREMIUM_MAX)
+    all_ok &= check("NaN atm_iv_90d_percentile doesn't poison composite_score", not math.isnan(score_nan))
+    all_ok &= check("NaN atm_iv_90d_percentile falls back to NEUTRAL iv_richness", breakdown_nan["iv_richness"] == 50.0)
 
     # Criterion 6: liquidity -- higher volume/OI, no flags, scores higher.
     illiquid = {**low_iv, "legs": [_leg(volume=1, open_interest=5, zero_bid=True, wide_spread=True)]}

@@ -48,6 +48,11 @@ STRATEGY_SCREENING_EXCLUSIONS = {"^VIX"}
 SIGNALS_DIR = PROJECT_DIR / "data" / "github_sync" / "signals"
 LEDGER_PATH = PROJECT_DIR / "data" / "github_sync" / "options_ledger" / "options_recommendation_ledger.csv"
 LEDGER_COLS = ["symbol", "company_name", "trade_id", "strategy", "leg_role"]
+SCORE_COLS = [
+    "composite_score", "iv_richness", "skew_quality", "risk_reward",
+    "pop_proxy", "term_structure", "liquidity", "directional_alignment",
+]
+OUTCOME_COLS = ["outcome_status", "outcome_date", "realized_pct"]
 
 
 def git_pull():
@@ -122,7 +127,7 @@ def write_ledger(ranked, snapshot_date, company_names):
         trade_id = f"{snapshot_date}-{candidate['symbol']}-{rank}"
         contracts = suggested_contracts(candidate)
         for leg in candidate["legs"]:
-            rows.append({
+            row = {
                 "symbol": candidate["symbol"],
                 "company_name": company_names.get(candidate["symbol"], ""),
                 "trade_id": trade_id,
@@ -130,14 +135,21 @@ def write_ledger(ranked, snapshot_date, company_names):
                 "leg_role": leg["leg_role"],
                 f"rec:{snapshot_date}": f"{leg['contract_symbol']}/{leg['last_price']}",
                 "suggested_contracts": contracts,
-            })
+                "composite_score": round(score, 2),
+                "outcome_status": "",
+                "outcome_date": "",
+                "realized_pct": "",
+            }
+            for criterion in SCORE_COLS[1:]:  # everything but composite_score, already set above
+                row[criterion] = round(breakdown[criterion], 2)
+            rows.append(row)
             date_cols_seen.add(f"rec:{snapshot_date}")
 
     existing_rows, existing_cols = [], []
     if LEDGER_PATH.exists():
         with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            existing_cols = [c for c in (reader.fieldnames or []) if c not in LEDGER_COLS + ["suggested_contracts"]]
+            existing_cols = [c for c in (reader.fieldnames or []) if c not in LEDGER_COLS + SCORE_COLS + ["suggested_contracts"] + OUTCOME_COLS]
             all_prior_rows = list(reader)
         # Re-running the orchestrator for a snapshot_date it already
         # published (e.g. a manual re-run, or a retriggered routine)
@@ -147,7 +159,7 @@ def write_ledger(ranked, snapshot_date, company_names):
         # before appending today's freshly-built rows.
         existing_rows = [r for r in all_prior_rows if not r["trade_id"].startswith(f"{snapshot_date}-")]
 
-    header = LEDGER_COLS + sorted(set(existing_cols) | date_cols_seen) + ["suggested_contracts"]
+    header = LEDGER_COLS + sorted(set(existing_cols) | date_cols_seen) + SCORE_COLS + ["suggested_contracts"] + OUTCOME_COLS
     LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(LEDGER_PATH, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)
