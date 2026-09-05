@@ -104,3 +104,13 @@ CALENDAR_MIN_FRONT_DAYS = 10
 CALENDAR_LONG_PREMIUM_MIN = 0.10
 CALENDAR_LONG_PREMIUM_MAX = 0.25
 CALENDAR_SHORT_DISCOUNT = 0.10
+
+# risk-management-and-position-sizing.md SS6 (Chen/Sebastian ch.3): 2%
+# max risk per trade. ACCOUNT_EQUITY is a fixed constant the user edits
+# directly (same precedent as RISK_FREE_RATE) -- no account-balance data
+# source exists in this project.
+ACCOUNT_EQUITY = 100000
+MAX_LOSS_PCT_PER_TRADE = 0.02
+
+# Number of ranked candidates published to the recommendation ledger.
+TOP_N_CANDIDATES = 20
