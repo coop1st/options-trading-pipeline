@@ -1,0 +1,8 @@
+section,key,sample_size,win_rate_or_above_median,avg_realized_pct_or_below_median,note
+by_criterion,iv_richness,0,,,too few trades to be meaningful yet
+by_criterion,skew_quality,0,,,too few trades to be meaningful yet
+by_criterion,risk_reward,0,,,too few trades to be meaningful yet
+by_criterion,pop_proxy,0,,,too few trades to be meaningful yet
+by_criterion,term_structure,0,,,too few trades to be meaningful yet
+by_criterion,liquidity,0,,,too few trades to be meaningful yet
+by_criterion,directional_alignment,0,,,too few trades to be meaningful yet
