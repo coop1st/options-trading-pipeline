@@ -138,7 +138,14 @@ def write_ledger(ranked, snapshot_date, company_names):
         with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             existing_cols = [c for c in (reader.fieldnames or []) if c not in LEDGER_COLS + ["suggested_contracts"]]
-            existing_rows = list(reader)
+            all_prior_rows = list(reader)
+        # Re-running the orchestrator for a snapshot_date it already
+        # published (e.g. a manual re-run, or a retriggered routine)
+        # must REPLACE that date's trade rows, not accumulate duplicates
+        # alongside them -- trade_id is namespaced "{snapshot_date}-...",
+        # so drop any prior row whose trade_id belongs to today's date
+        # before appending today's freshly-built rows.
+        existing_rows = [r for r in all_prior_rows if not r["trade_id"].startswith(f"{snapshot_date}-")]
 
     header = LEDGER_COLS + sorted(set(existing_cols) | date_cols_seen) + ["suggested_contracts"]
     LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
