@@ -1,0 +1,36 @@
+name: Generate tuning stats
+
+# Runs entirely in the cloud, on the 1st of each month, after that
+# week's compare-strategies.yml run has published fresh label/criterion
+# data. Purely mechanical -- correlation, sweep, and sensitivity math,
+# no external fetch, no judgment. A separate monthly Claude Code routine
+# reads this output and decides what (if anything) is suggestion-worthy.
+
+on:
+  schedule:
+    - cron: "0 21 1 * *"  # 1st of each month, 21:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Configure git identity for the commit_and_push step
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Generate tuning stats
+        run: python pipeline/generate_tuning_stats.py
