@@ -50,13 +50,13 @@ so every numeric threshold below can be traced to its source chapter.
   criteria, all traceable to specific book guidance (§ "Composite Scoring"
   below), and publish the **top 20** to the options recommendation ledger
   (`data/github_sync/options_ledger/options_recommendation_ledger.csv`,
-  schema already fixed by the sub-project 2 spec's component E, with one
-  proposed extension — see § "Proposed Extensions").
+  schema already fixed by the sub-project 2 spec's component E, extended
+  with one new column — see § "Extensions Beyond the Prior Recap").
 - Attach a book-cited **position-sizing suggestion** (2%-of-capital rule,
   Chen/Sebastian ch.3) to every recommended candidate, and a standing
   **portfolio-insurance reminder** (the "units" concept, ch.3/8/11) to the
-  nightly output — both are new relative to the prior chat recap; see
-  § "Proposed Extensions" for why they're being proposed now and what they
+  nightly output — both new relative to the prior chat recap, confirmed
+  2026-09-05; see § "Extensions Beyond the Prior Recap" for what they
   need to work.
 - Give the overnight cloud routine (component D, already built as a
   diagnostic placeholder) a real data source to draft its recommendation
@@ -98,9 +98,9 @@ rather than half-built across too many strategies:
   Sebastian ch.3: 5+ sectors, no sector >25%) and the **6%-of-capital
   monthly circuit breaker** — both require knowing the user's actual open
   positions and realized month-to-date P&L, neither of which this pipeline
-  tracks. The 2%-per-trade sizing suggestion (§ "Proposed Extensions") is
-  included because it only needs a single candidate's own max loss; these
-  two do not.
+  tracks. The 2%-per-trade sizing suggestion (§ "Extensions Beyond the
+  Prior Recap") is included because it only needs a single candidate's
+  own max loss; these two do not.
 - **Weighted-vega as a precise computed number.** Both books describe
   *why* front-month vega is more reactive than back-month vega
   (`greeks-and-volatility.md` §5) but neither gives a single closed-form
@@ -115,53 +115,131 @@ rather than half-built across too many strategies:
 Writing this spec against the actual book criteria (rather than the
 higher-level recap) surfaced four gaps between what sub-project 2's
 pipeline currently persists and what several book-cited entry conditions
-actually need to be computed. These are small, targeted additions to the
-existing pipeline, not a redesign of it:
+actually need to be computed. All four are now resolved design decisions
+(confirmed with the user 2026-09-05), not open questions:
 
-1. **Underlying ATR (Average True Range).** The iron condor's volatility
-   condition is explicitly "IV relative to ATR" (`income-strategies.md`
-   §4, `greeks-and-volatility.md` §3), not IV in isolation. ATR needs
-   daily OHLC price history per underlying (Welles Wilder's 14-day
-   true-range average). Neither `options_snapshots` (option chains only)
-   nor the Stocks day-trade ledger (sparse suggestion-day closing prices)
-   provides this. **Needed**: a small new fetch (e.g. `yfinance`'s
-   `history()`) for ~20 trading days of daily OHLC per watchlist symbol,
-   either folded into component B's existing cloud fetch or added as a
-   lightweight step in this sub-project's own code.
-2. **Skew history, not just ATM IV history.** `merge_and_score.py`
-   already persists `atm_iv_history` (symbol, expiration, date, atm_iv)
-   to compute `atm_iv_90d_percentile`, but it does **not** persist
-   `skew_put_pct_of_atm`/`skew_call_pct_of_atm` over time. Several
-   book-cited skew rules are explicitly *relative-to-own-history*, not
-   absolute (`greeks-and-volatility.md` §4.3: "skew is relative, not
-   absolute" — a given skew percentage only means something compared to
-   that symbol's own normal level). **Needed**: extend `db.py` with a
-   `skew_history` table (mirroring `atm_iv_history`'s shape) and have
-   `compute_signals()` upsert into it alongside the existing IV history
-   write.
-3. **Term-structure-spread history**, for the calendar/diagonal entry
-   gates specifically. "At least 10% of front-month IV over the normal
-   relationship" (`spreads-and-combinations.md` §4) requires knowing what
-   the front-minus-back IV spread normally looks like for that symbol —
-   not just today's snapshot. **Needed**: derive this from the same
-   `atm_iv_history` table (now keyed per expiration) by comparing the
-   *current* front/back spread against the distribution of that same
-   spread on prior dates — feasible once (1) and (2) above give enough
-   history, but not before.
-4. **SPX/VIX in the fetch list**, only if the portfolio-insurance reminder
-   (§ "Proposed Extensions") is approved — the current watchlist is
-   entirely individual equities sourced from the day-trade shortlist,
-   which never suggests SPX or VIX. Both books' named tail-hedge
-   instruments (`risk-management-and-position-sizing.md` §8) are OTM SPX
-   puts and OTM VIX calls specifically.
+### 1. Underlying ATR (Average True Range)
 
-None of (1)–(3) block shipping the engine — they gate specific entry
-conditions (condor's ATR check, calendar's "normal relationship" check,
-some skew-quality scoring) that can run in a degraded/skipped mode with a
+The iron condor's volatility condition is explicitly "IV relative to ATR"
+(`income-strategies.md` §4, `greeks-and-volatility.md` §3), not IV in
+isolation. ATR needs daily OHLC price history per underlying (Welles
+Wilder's 14-day true-range average), which neither `options_snapshots`
+nor the Stocks day-trade ledger provides.
+
+**Resolved design — daily cloud fetch, weekly local refresh**, mirroring
+the existing component B/C split:
+
+- **New GitHub Actions workflow** (`.github/workflows/daily-true-range-fetch.yml`),
+  once per trading day after close (~4:05pm ET, same DST-drift-acceptance
+  convention as component B) — **not** a Claude Code cloud routine,
+  since this step is purely mechanical (a fetch plus an arithmetic
+  formula, no judgment), matching the exact reasoning that put the
+  options-snapshot fetch on Actions rather than a routine.
+- **New self-contained script** `cloud/fetch_daily_true_range.py`
+  (no repo imports, matching `cloud/fetch_options_snapshot.py`'s
+  convention): reads the watchlist (source A), fetches each symbol's
+  latest daily OHLC bar (`yfinance`'s `history()`, a short trailing
+  window to cover weekend/holiday gaps), computes that day's **true
+  range** per Wilder's formula (`greeks-and-volatility.md` §3: greatest
+  of high−low, |high−prior close|, |low−prior close|), and appends it to
+  `data/github_sync/daily_true_range/true_range_ledger.csv` — the same
+  wide-format convention as `stock_price_ledger.csv`
+  (`symbol, company_name`, then one `YYYY-MM-DD` column per trading day).
+  A paired `close:YYYY-MM-DD` column is also written, purely so the next
+  day's true-range calculation can read "yesterday's close" straight out
+  of the ledger instead of a second fetch (the very first day, with no
+  prior close on file, falls back to `high − low` alone — a slightly
+  understated value that self-corrects the next day). Commit + push,
+  identical mechanics to component B.
+- **Locally, weekly**: `pipeline/atr.py`'s `refresh_atr_if_stale()`,
+  called at the top of `screen_trades.py` before building iron condor
+  candidates. Checks a small `atr_last_refreshed` marker in `options.db`;
+  if 7+ days have elapsed (or it's never run), it reads the true-range
+  ledger fresh via `raw.githubusercontent.com` (the same plain-HTTPS
+  read pattern component A already uses — no git pull needed), computes
+  each symbol's current ATR as the mean of its last 14 daily columns, and
+  upserts one value per symbol into a new local `atr_by_symbol` table. If
+  fewer than 7 days have passed, it reuses the cached value untouched.
+  This keeps the weekly cadence self-contained in code — matching the
+  project's "whenever the PC is next on" philosophy — rather than
+  depending on a separate schedule or the user remembering to run
+  something.
+
+### 2. Skew history, not just ATM IV history
+
+`merge_and_score.py` already persists `atm_iv_history` (symbol,
+expiration, date, atm_iv) to compute `atm_iv_90d_percentile`, but does
+**not** persist `skew_put_pct_of_atm`/`skew_call_pct_of_atm` over time.
+Several book-cited skew rules are explicitly *relative-to-own-history*
+(`greeks-and-volatility.md` §4.3: "skew is relative, not absolute").
+
+**Resolved design**: extend `db.py` with a `skew_history` table
+(identical shape to `atm_iv_history`) and add `upsert_skew_history()`,
+called from `compute_signals()` right alongside the existing
+`upsert_atm_iv_history()` call. Purely additive to already-shipped code
+— no new fetch, no new schedule.
+
+### 3. Term-structure-spread history, for calendars/diagonals
+
+"At least 10% of front-month IV over the normal relationship"
+(`spreads-and-combinations.md` §4) requires knowing what the
+front-minus-back IV spread normally looks like for a symbol, not just
+today's snapshot.
+
+**Resolved design — simpler than first scoped, no new table needed.**
+`atm_iv_history` is already keyed by `(symbol, expiration, date)`, so the
+historical spread for any candidate's specific front/back expiration
+pair is just a query joining that table against itself on matching
+dates — a new `db.py` read function, not new persistence. It becomes
+usable once enough trading days have accumulated for the expirations in
+question (same "wait ~5+ trading days" pattern `atm_iv_90d_percentile`
+already uses).
+
+### 4. Tail-hedge instruments (SPX/VIX) for the portfolio-insurance reminder
+
+Both books' named tail-hedge instruments
+(`risk-management-and-position-sizing.md` §8) are OTM SPX puts and OTM
+VIX calls specifically — neither is ever suggested by the day-trade
+shortlist, so neither is in the current watchlist. yfinance's
+options-chain support for pure index tickers (`^SPX`/`^VIX`) is
+inconsistent (unlike the equity/ETF chains the sub-project 2 spec
+empirically verified), so this needs resilience, not a one-time
+feasibility check.
+
+**Resolved design — extend component B's existing symbol list, with the
+existing skip-and-continue behavior *as* the fallback mechanism**:
+
+- Add a small fixed supplementary ticker set to `cloud/fetch_options_snapshot.py`'s
+  existing per-symbol loop, in priority order per hedge type:
+  - Equity-downside hedge: `^SPX` → `SPY` (Bittman's own precedent for
+    this kind of substitution: "S&P 500 futures options can substitute
+    for SPX options for funds without SPX access," `spreads-and-combinations.md`
+    §4 — extended here from futures to an ETF for the same reason:
+    access).
+  - Volatility-spike hedge: `^VIX` → `VXX`/`UVXY` calls (a VIX-futures-tracking
+    ETP, since VIX futures options themselves aren't available through
+    this pipeline's data source — flagged as this spec's own
+    implementation substitution, not a book-named instrument, since the
+    books specify VIX calls directly).
+- No new fetch code is needed for the fallback itself: component B's
+  existing per-symbol skip-and-continue handling (already built and
+  verified for rate-limited/failed symbols) is exactly the mechanism
+  that makes this resilient — if `^SPX` or `^VIX` fails to fetch on a
+  given day, it's simply absent from that day's `signals.csv`, same as
+  any other skipped symbol.
+- `screen_trades.py`'s units-reminder step checks each hedge type's
+  priority list against today's `signals.csv` and uses whichever symbol
+  actually has usable data (deep-OTM, delta <5, per
+  `risk-management-and-position-sizing.md` §8's "unit" definition). If
+  **no** symbol in a hedge type's list has usable data that day, the
+  reminder still fires with the text-only rule restated (no concrete
+  example) rather than being dropped silently — consistent with the
+  project's fail-loud-not-silent convention applied to a soft reminder.
+
+None of the four gaps block shipping the engine — items 1 and 3 gate
+specific entry conditions that run in a degraded/skipped mode with a
 visible note until enough history accumulates, exactly like
-`atm_iv_90d_percentile` already does for its first ~5 trading days
-post-deploy (per the sub-project 2 HANDOVER note). (4) only matters if the
-portfolio-insurance reminder is approved.
+`atm_iv_90d_percentile` already does post-deploy.
 
 ## Architecture
 
@@ -171,7 +249,8 @@ portfolio-insurance reminder is approved.
 │  • data/github_sync/signals/{today}.csv           (sub-project 2)    │
 │  • Stocks: stock_price_ledger.csv                 (watchlist)        │
 │  • Stocks: stock_rating_ledger.csv                (directional bias) │
-│  • options.db: atm_iv_history, skew_history*, atr_history*  (*new)   │
+│  • options.db: atm_iv_history, skew_history*, atr_by_symbol* (*new)  │
+│  • data/github_sync/daily_true_range/true_range_ledger.csv (*new)    │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -206,14 +285,13 @@ portfolio-insurance reminder is approved.
                               ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │ pipeline/screen_trades.py  (orchestrator, mirrors merge_and_score.py) │
-│  1. Read today's signals.csv, the two Stocks ledgers, and history.    │
+│  1. Refresh ATR if stale (weekly); read today's signals.csv, the two  │
+│     Stocks ledgers, and history tables.                               │
 │  2. For each watchlist symbol: call every applicable builder.         │
 │  3. Score and rank all survivors; take the top 20 overall.            │
-│  4. Attach a position-sizing suggestion to each (§ Proposed           │
-│     Extensions).                                                      │
+│  4. Attach a position-sizing suggestion to each.                      │
 │  5. Write the options recommendation ledger; commit + push.           │
-│  6. Append the standing portfolio-insurance reminder line, if          │
-│     approved (§ Proposed Extensions).                                 │
+│  6. Append the standing portfolio-insurance reminder line.            │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -285,10 +363,13 @@ directional view.
   optimal entry," not a literal range — 45–75 is this spec's own
   reasonable operationalization of "around," not a book number.
 - **IV vs. ATR**: today's ATM IV must exceed the underlying's 14-day ATR
-  (book-verbatim mechanism, `greeks-and-volatility.md` §3). **Gated only
-  once ATR history exists** (§ "New Data Prerequisites" item 1) — until
-  then this gate is skipped with a visible note, matching the
-  `atm_iv_90d_percentile` precedent from sub-project 2.
+  (book-verbatim mechanism, `greeks-and-volatility.md` §3), read from the
+  local `atr_by_symbol` table populated weekly by `pipeline/atr.py`
+  (§ "New Data Prerequisites" item 1). Until that table has its first
+  value for a symbol (the daily cloud fetch needs ~14 days of history
+  before an ATR is even computable), this gate is skipped for that
+  symbol with a visible note, matching the `atm_iv_90d_percentile`
+  precedent from sub-project 2.
 
 **Not gated (feeds scoring instead)**: skew steepness (a soft warning
 sign per the book, not a cutoff), and the risk/reward-vs-probability
@@ -349,11 +430,12 @@ market forecast of sideways movement."
   final days"; **implementation choice**: hard-gate out anything inside
   **10 calendar days** to expiration on the front leg, since the book
   doesn't give an exact day count — flagged as this spec's own number).
-- **Gated only once term-structure-spread history exists** (§ "New Data
-  Prerequisites" item 3) — "normal relationship" is inherently a
-  relative-to-own-history comparison, so until that history accumulates,
-  calendar candidates are skipped entirely with a visible note (not
-  built with a fabricated "normal" baseline).
+- **Gated via the `atm_iv_history`-derived term-structure query** (§ "New
+  Data Prerequisites" item 3) — "normal relationship" is inherently a
+  relative-to-own-history comparison, so until the relevant expiration
+  pair has enough accumulated history, calendar candidates for that
+  symbol/expiration pair are skipped with a visible note (not built with
+  a fabricated "normal" baseline).
 
 **Not gated (feeds scoring instead)**: nothing else — the entry criteria
 here are almost entirely the term-structure gate itself per the book.
@@ -371,7 +453,8 @@ the double diagonal, which the books do document with a worked example,
 is implemented.
 
 **Hard gates**: same term-structure gate as family D (front month elevated
-relative to further-out months), plus the same history prerequisite.
+relative to further-out months), via the same `atm_iv_history`-derived
+query.
 
 **Not gated (feeds scoring instead)**: skew richness on both wings (the
 book gives direction — "skew on both wings is rich enough to justify
@@ -407,12 +490,11 @@ families for a symbol, sorted descending by composite score across the
 overall are written to the ledger — matching the number already agreed
 with the user over building an unbounded score-threshold cut.
 
-## Proposed Extensions Beyond the Prior Recap
+## Extensions Beyond the Prior Recap (confirmed 2026-09-05)
 
 Two additions surfaced while reading the risk-management reference in
 full, both clearly book-mandated but not discussed in the prior session's
-recap — flagging both explicitly for your review rather than silently
-folding them in.
+recap. Both are confirmed for this pass.
 
 ### 1. Position-sizing suggestion (2% rule)
 
@@ -449,29 +531,24 @@ when you can, not when you have to"). Given how much of this engine's
 output (families A, B, D-long, E) is structurally short volatility, and
 how directly the books tie that structural short-vol exposure to needing
 this hedge, leaving it out felt like skipping a base the user explicitly
-asked to cover. Proposal, scoped modestly: not a scored/ranked candidate,
-just a standing line in the nightly email restating the rule and — once
-SPX/VIX are added to the fetch list (§ "New Data Prerequisites" item 4)
-— citing the day's cheapest qualifying contract (delta <5, price under a
-small configurable ceiling) as a concrete example. Sizing the hedge
-precisely to the book's stated goal (breakeven-or-better on a 10% market
-drop, profitable on a 20% drop) would need a scenario-pricing model well
-beyond a Black-Scholes snapshot, so this reminder stops at "here's a
-qualifying contract," not "here's the exact size to buy."
-
-**If either extension isn't wanted for this pass, say so during spec
-review and both sections above are removed before the implementation
-plan.**
+asked to cover. Scoped modestly: not a scored/ranked candidate, just a
+standing line in the nightly email restating the rule and citing the
+day's cheapest qualifying contract (delta <5, price under a small
+configurable ceiling) via the priority-list fallback mechanism designed
+in § "New Data Prerequisites" item 4 (`^SPX`→`SPY` for the equity-downside
+hedge, `^VIX`→`VXX`/`UVXY` for the volatility-spike hedge). Sizing the
+hedge precisely to the book's stated goal (breakeven-or-better on a 10%
+market drop, profitable on a 20% drop) would need a scenario-pricing
+model well beyond a Black-Scholes snapshot, so this reminder stops at
+"here's a qualifying contract," not "here's the exact size to buy."
 
 ## Recommendation Ledger Writer (Component E)
 
 Reuses the schema already fixed in the sub-project 2 spec
 (`symbol, company_name, trade_id, strategy, leg_role, rec:YYYY-MM-DD,
-tgt:YYYY-MM-DD`), with **one proposed extension**: a `suggested_contracts`
-column, constant across every leg row sharing a `trade_id` (per §
-"Proposed Extensions" item 1). If the sizing extension is declined, this
-column is dropped and the schema is implemented exactly as sub-project 2
-specified it.
+tgt:YYYY-MM-DD`), extended with one new column: `suggested_contracts`,
+constant across every leg row sharing a `trade_id` (per § "Extensions
+Beyond the Prior Recap" item 1).
 
 `pipeline/screen_trades.py` writes one row per leg (2 rows for a vertical
 spread, 4 for an iron condor, 2 for a calendar, 4 for a double diagonal),
@@ -523,24 +600,36 @@ existing `verify_greeks.py`):
 None created yet — this remains design until the spec is approved and an
 implementation plan is written:
 
+- `.github/workflows/daily-true-range-fetch.yml` *(new)* — daily GitHub
+  Actions cron for prerequisite 1.
+- `cloud/fetch_daily_true_range.py` *(new)* — self-contained daily OHLC/
+  true-range cloud fetch, publishes `true_range_ledger.csv`.
 - `pipeline/directional_bias.py` — reads the Stocks weekly ratings ledger.
-- `pipeline/atr.py` *(new, per prerequisite 1)* — fetches and computes
-  14-day ATR per watchlist symbol.
+- `pipeline/atr.py` *(new)* — `refresh_atr_if_stale()`: weekly local pull
+  of the true-range ledger, computes and caches 14-day ATR per symbol in
+  `options.db`.
 - `pipeline/strategy_rules.py` — one builder function per family (A–E),
   each hard-gated and book/chapter-cited in its own docstring.
 - `pipeline/scoring.py` — the 7-criteria composite score, pure function,
   no I/O, same shape as `greeks.py`.
-- `pipeline/screen_trades.py` — orchestrator: reads signals + both Stocks
-  ledgers + history tables, calls the builders per symbol, scores and
-  ranks survivors, writes the top 20 to the recommendation ledger,
-  commits + pushes.
+- `pipeline/screen_trades.py` — orchestrator: calls
+  `refresh_atr_if_stale()`, reads signals + both Stocks ledgers + history
+  tables, calls the builders per symbol, scores and ranks survivors,
+  attaches the position-sizing suggestion, writes the top 20 plus the
+  portfolio-insurance reminder to the recommendation ledger, commits +
+  pushes.
 - `pipeline/verify_scoring.py` — manual verification script, no pytest.
-- `pipeline/db.py` — extended with `skew_history` and (if prerequisite 1
-  is implemented here rather than in component B) `atr_history` tables.
+- `pipeline/db.py` — extended with `skew_history` (prerequisite 2),
+  `atr_by_symbol` (prerequisite 1), a term-structure-spread read helper
+  over the existing `atm_iv_history` table (prerequisite 3), and
+  `atr_last_refreshed` staleness tracking.
+- `cloud/fetch_options_snapshot.py` — extended with the small
+  supplementary tail-hedge ticker set (`^SPX`, `SPY`, `^VIX`, `VXX`,
+  `UVXY`; prerequisite 4) alongside the existing watchlist loop.
 - Routine prompt update (`RemoteTrigger update`) once verified live —
   swap the current diagnostic placeholder for: read the recommendation
   ledger's newest `trade_id`s, draft the real recommendation email,
-  including the portfolio-insurance reminder line if approved.
+  including the portfolio-insurance reminder line.
 
 ## Open Questions
 
@@ -561,9 +650,8 @@ Carried into the implementation plan rather than blocking this spec:
   relative weights between, say, skew quality and liquidity). Worth
   revisiting once the ledger has enough history to check whether any
   single criterion is dominating or being drowned out in practice.
-- **Where prerequisite 1 (ATR fetch) lives**: folded into component B's
-  existing GitHub Actions cloud fetch (keeps all market-data fetching
-  cloud-side) or added as a local fetch inside this sub-project's own
-  code (keeps sub-project 2's already-shipped, already-verified workflow
-  untouched). Leaning toward the latter to avoid re-touching a component
-  that's already live and verified, but flagging for your input.
+- **VIX-ETP proxy choice** (`VXX` vs. `UVXY` vs. both): both are named as
+  candidates in prerequisite 4's fallback chain; whether to try both and
+  prefer whichever is cheaper/more liquid that day, or fix one as
+  primary and the other as a second fallback, is left to the
+  implementation plan.
