@@ -9,15 +9,19 @@ suggestions -- this script never authors a suggestion itself.
 Run from the repo root: `python pipeline/generate_tuning_stats.py`
 """
 import csv
+import json
 import statistics
+import subprocess
+from datetime import date
 
 from scipy.stats import spearmanr
 
-from compare_strategies import CRITERIA, _load_terminal_trades
-from config import PROJECT_DIR
-from track_outcomes import SCOREABLE_STATUSES, _entry_info_for_trade, evaluate_trade
+from compare_strategies import CRITERIA, _load_terminal_trades, by_label
+from config import DIRECTIONAL_STOP_PCT_GRID, DIRECTIONAL_TARGET_PCT_GRID, MIN_TRADES_FOR_TUNING_SUGGESTION, PROJECT_DIR
+from track_outcomes import SCOREABLE_STATUSES, _entry_info_for_trade, _load_all_signals, evaluate_trade
 
 LEDGER_PATH = PROJECT_DIR / "data" / "github_sync" / "options_ledger" / "options_recommendation_ledger.csv"
+STATS_PATH = PROJECT_DIR / "data" / "github_sync" / "options_ledger" / "tuning_stats_latest.json"
 
 
 def _spearman_or_none(pairs):
@@ -144,3 +148,73 @@ def load_directional_trade_legs():
         if legs:
             result[trade_id] = (strategy, legs)
     return result
+
+
+def git_pull():
+    result = subprocess.run(["git", "pull"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise RuntimeError(f"git pull failed: {result.stderr}")
+    return result.stdout.strip()
+
+
+def commit_and_push(paths, message):
+    paths = [str(p) for p in paths]
+    subprocess.run(["git", "add", *paths], cwd=PROJECT_DIR, check=True, timeout=60)
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_DIR, timeout=30)
+    if diff.returncode == 0:
+        return "no_changes"
+    subprocess.run(["git", "commit", "-m", message], cwd=PROJECT_DIR, check=True, timeout=60)
+    subprocess.run(["git", "push"], cwd=PROJECT_DIR, check=True, timeout=120)
+    return "pushed"
+
+
+def run_generate_tuning_stats():
+    print("Pulling latest from GitHub...")
+    print(git_pull())
+
+    if not LEDGER_PATH.exists():
+        print("No recommendation ledger yet -- nothing to analyze")
+        return {"status": "no_data"}
+
+    trades = _load_terminal_trades()
+    print(f"{len(trades)} scoreable terminal trade(s) found")
+
+    correlations = compute_criterion_correlations(trades)
+    sensitivity = compute_weight_sensitivity(trades)
+    label_rows = by_label(trades)
+
+    directional_trades = load_directional_trade_legs()
+    if len(directional_trades) >= MIN_TRADES_FOR_TUNING_SUGGESTION:
+        signals_by_date = _load_all_signals()
+        sweep = sweep_directional_thresholds(
+            directional_trades, DIRECTIONAL_STOP_PCT_GRID, DIRECTIONAL_TARGET_PCT_GRID,
+            signals_by_date, date.today(),
+        )
+        sweep_json = {f"{s}/{t}": v for (s, t), v in sweep.items()}
+    else:
+        print(f"Only {len(directional_trades)} terminal directional trade(s) "
+              f"(< {MIN_TRADES_FOR_TUNING_SUGGESTION}) -- skipping exit-side sweep")
+        sweep_json = None
+
+    stats = {
+        "generated_date": date.today().isoformat(),
+        "total_terminal_trades": len(trades),
+        "min_trades_for_suggestion": MIN_TRADES_FOR_TUNING_SUGGESTION,
+        "criterion_correlations": correlations,
+        "weight_sensitivity": sensitivity,
+        "label_performance": label_rows,
+        "directional_exit_sweep": sweep_json,
+    }
+
+    STATS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(STATS_PATH, "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=2)
+    print(f"Wrote stats to {STATS_PATH}")
+
+    status = commit_and_push([STATS_PATH], f"Tuning stats: {len(trades)} terminal trades, {date.today().isoformat()}")
+    print(f"Publish status: {status}")
+    return {"status": status, "terminal_trades": len(trades)}
+
+
+if __name__ == "__main__":
+    print(run_generate_tuning_stats())
