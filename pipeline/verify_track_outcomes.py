@@ -111,6 +111,19 @@ def main():
     status, _, _ = evaluate_trade("long call", long_call_legs, {"2026-03-01": {"TEST260601C00100000": 1.40}}, date(2026, 3, 1))
     check("long call hits 50% stop", status == "HIT_MAX_LOSS")
 
+    # Sub-project 5: evaluator_overrides must actually change behavior
+    # (the sweep depends on this), and must not affect the default path.
+    # Premium paid = 3.00; price 4.80 = 160% of premium (ratio 1.6).
+    status, _, _ = evaluate_trade(
+        "long call", long_call_legs, {"2026-03-01": {"TEST260601C00100000": 4.80}}, date(2026, 3, 1),
+    )
+    check("default thresholds: 160% of premium hits neither target nor stop yet", status == "OPEN")
+    status, _, _ = evaluate_trade(
+        "long call", long_call_legs, {"2026-03-01": {"TEST260601C00100000": 4.80}}, date(2026, 3, 1),
+        evaluator_overrides={"target_pct": 1.5},
+    )
+    check("overridden target_pct=1.5: same 160% now hits HIT_TARGET", status == "HIT_TARGET")
+
     # Gap-skip: a date with missing pricing for one leg must be skipped,
     # not treated as a signal -- evaluation resumes on the next date.
     gapped_history = {

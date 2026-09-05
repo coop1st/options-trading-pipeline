@@ -151,3 +151,15 @@ MIN_TERMINAL_TRADES_FOR_STATS = 5
 # book-consistent but not book-mandated bar for "meaningfully above the
 # 50 NEUTRAL baseline," not a book number.
 LABEL_THESIS_THRESHOLD = 65.0
+
+# Sub-project 5: stricter evidence bar before generating an actual
+# tuning suggestion (vs. the weekly report's looser MIN_TERMINAL_TRADES_FOR_STATS).
+MIN_TRADES_FOR_TUNING_SUGGESTION = 10
+
+# Tier-2 exit-side sweep grid for directional longs -- an
+# implementation-time choice of which alternate values to test, not a
+# book number (see adaptive-tuning-design.md). The only Tier-2 pair
+# eligible for sweeping; every other Tier-2 constant lives in
+# strategy_rules.py's builders and is out of scope for this sub-project.
+DIRECTIONAL_STOP_PCT_GRID = [0.40, 0.50, 0.60]
+DIRECTIONAL_TARGET_PCT_GRID = [1.5, 1.75, 2.0, 2.25]
