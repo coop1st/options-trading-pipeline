@@ -1,0 +1,43 @@
+name: Daily true-range fetch
+
+# Runs entirely in the cloud, once per trading day after close. Feeds
+# pipeline/atr.py's weekly local ATR refresh -- mechanical fetch + a
+# Wilder true-range formula, no judgment, so this is a GitHub Actions
+# job (matching options-snapshot-fetch.yml's reasoning) not a Claude
+# Code cloud routine.
+
+on:
+  schedule:
+    - cron: "5 20 * * 1-5"  # ~4:05pm ET, after market close
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Fetch daily true range
+        run: python cloud/fetch_daily_true_range.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/github_sync/daily_true_range/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Daily true range: $(date -u +%Y-%m-%d)"
+            git push
+          fi
