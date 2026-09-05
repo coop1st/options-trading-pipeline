@@ -17,14 +17,14 @@ from atr import refresh_atr_if_stale
 from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
     CALENDAR_MIN_FRONT_DAYS, CALENDAR_SHORT_DISCOUNT, CONDOR_DELTA_MAX, CONDOR_DELTA_MIN,
-    CONDOR_MAX_DTE, CONDOR_MIN_DTE, EQUITY_MIN_DAILY_VOLUME, MAX_LOSS_PCT_PER_TRADE,
-    MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TAIL_HEDGE_PRIORITY, TOP_N_CANDIDATES,
-    UNIT_MAX_DELTA, UNIT_MAX_PRICE, VERTICAL_DELTA_BAND, VERTICAL_MAX_DTE, VERTICAL_MIN_DTE,
-    VERTICAL_SPREAD_WIDTHS,
+    CONDOR_MAX_DTE, CONDOR_MIN_DTE, EQUITY_MIN_DAILY_VOLUME, LABEL_THESIS_THRESHOLD,
+    MAX_LOSS_PCT_PER_TRADE, MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TAIL_HEDGE_PRIORITY,
+    TOP_N_CANDIDATES, UNIT_MAX_DELTA, UNIT_MAX_PRICE, VERTICAL_DELTA_BAND, VERTICAL_MAX_DTE,
+    VERTICAL_MIN_DTE, VERTICAL_SPREAD_WIDTHS,
 )
 from db import get_atr_row, get_term_structure_spread_history, init_db
 from directional_bias import fetch_directional_bias
-from scoring import score_candidate
+from scoring import compute_selection_label, score_candidate
 from strategy_rules import (
     build_calendars, build_directional_longs, build_double_diagonals,
     build_iron_condors, build_vertical_credit_spreads,
@@ -52,6 +52,7 @@ SCORE_COLS = [
     "composite_score", "iv_richness", "skew_quality", "risk_reward",
     "pop_proxy", "term_structure", "liquidity", "directional_alignment",
 ]
+LABEL_COLS = ["selection_label"]
 OUTCOME_COLS = ["outcome_status", "outcome_date", "realized_pct"]
 
 
@@ -126,6 +127,7 @@ def write_ledger(ranked, snapshot_date, company_names):
     for rank, (score, breakdown, candidate) in enumerate(ranked, start=1):
         trade_id = f"{snapshot_date}-{candidate['symbol']}-{rank}"
         contracts = suggested_contracts(candidate)
+        label = compute_selection_label(breakdown, LABEL_THESIS_THRESHOLD)
         for leg in candidate["legs"]:
             row = {
                 "symbol": candidate["symbol"],
@@ -136,6 +138,7 @@ def write_ledger(ranked, snapshot_date, company_names):
                 f"rec:{snapshot_date}": f"{leg['contract_symbol']}/{leg['last_price']}",
                 "suggested_contracts": contracts,
                 "composite_score": round(score, 2),
+                "selection_label": label,
                 "outcome_status": "",
                 "outcome_date": "",
                 "realized_pct": "",
@@ -149,7 +152,7 @@ def write_ledger(ranked, snapshot_date, company_names):
     if LEDGER_PATH.exists():
         with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
             reader = csv.DictReader(f)
-            existing_cols = [c for c in (reader.fieldnames or []) if c not in LEDGER_COLS + SCORE_COLS + ["suggested_contracts"] + OUTCOME_COLS]
+            existing_cols = [c for c in (reader.fieldnames or []) if c not in LEDGER_COLS + SCORE_COLS + LABEL_COLS + ["suggested_contracts"] + OUTCOME_COLS]
             all_prior_rows = list(reader)
         # Re-running the orchestrator for a snapshot_date it already
         # published (e.g. a manual re-run, or a retriggered routine)
@@ -159,7 +162,7 @@ def write_ledger(ranked, snapshot_date, company_names):
         # before appending today's freshly-built rows.
         existing_rows = [r for r in all_prior_rows if not r["trade_id"].startswith(f"{snapshot_date}-")]
 
-    header = LEDGER_COLS + sorted(set(existing_cols) | date_cols_seen) + SCORE_COLS + ["suggested_contracts"] + OUTCOME_COLS
+    header = LEDGER_COLS + sorted(set(existing_cols) | date_cols_seen) + SCORE_COLS + LABEL_COLS + ["suggested_contracts"] + OUTCOME_COLS
     LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(LEDGER_PATH, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=header)

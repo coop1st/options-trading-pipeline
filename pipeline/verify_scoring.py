@@ -11,7 +11,9 @@ Run: python pipeline/verify_scoring.py
 import math
 import sys
 
-from scoring import score_candidate
+from scoring import compute_selection_label, score_candidate
+
+LABEL_THRESHOLD = 65.0
 
 MIN_VOLUME, MIN_OI = 10, 50
 PREMIUM_MIN, PREMIUM_MAX = 0.10, 0.25
@@ -95,6 +97,21 @@ def main():
     _, b_condor_neutral = score_candidate(condor, MIN_VOLUME, MIN_OI, PREMIUM_MIN, PREMIUM_MAX)
     all_ok &= check("directional family with a matching tilt scores full alignment", b_directional_with_tilt["directional_alignment"] == 100.0)
     all_ok &= check("neutral family with no tilt scores full alignment", b_condor_neutral["directional_alignment"] == 100.0)
+
+    # Selection label (sub-project 5): thesis criteria at/above threshold
+    # drive the label; quality-gate criteria (risk_reward, pop_proxy,
+    # liquidity) never do, even when high.
+    single_driver = {"iv_richness": 80.0, "skew_quality": 40.0, "risk_reward": 90.0,
+                      "pop_proxy": 90.0, "term_structure": 40.0, "liquidity": 90.0, "directional_alignment": 40.0}
+    all_ok &= check("single thesis driver -> single-term label", compute_selection_label(single_driver, LABEL_THRESHOLD) == "rich_iv")
+
+    compound_driver = {**single_driver, "skew_quality": 75.0}
+    all_ok &= check("two thesis drivers -> compound label", compute_selection_label(compound_driver, LABEL_THRESHOLD) == "rich_iv+rich_skew")
+
+    no_driver = {"iv_richness": 50.0, "skew_quality": 50.0, "risk_reward": 95.0,
+                 "pop_proxy": 95.0, "term_structure": 50.0, "liquidity": 95.0, "directional_alignment": 50.0}
+    all_ok &= check("no thesis criterion clears threshold -> no_dominant_thesis despite high quality scores",
+                     compute_selection_label(no_driver, LABEL_THRESHOLD) == "no_dominant_thesis")
 
     print("ALL_OK" if all_ok else "VERIFICATION_FAILED")
     if not all_ok:
