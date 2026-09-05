@@ -70,3 +70,8 @@ SKEW_DELTA_TARGET = 0.25
 
 # Cloud fetch (component B): only expirations within this many days out.
 MAX_DTE_DAYS = 75
+
+# ATR refresh cadence (New Data Prerequisites item 1b) -- ATR is a
+# slow-moving 14-day average, so a weekly local recompute is enough.
+ATR_HISTORY_WINDOW = 14
+ATR_REFRESH_DAYS = 7
