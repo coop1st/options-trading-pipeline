@@ -1,0 +1,29 @@
+name: Track outcomes
+
+# Runs entirely in the cloud, once per day. Replays each open
+# recommendation's exit rule against the signals.csv history already in
+# this repo -- no external fetch, so no local-machine dependency at all.
+
+on:
+  schedule:
+    - cron: "0 19 * * *"  # once daily; timing isn't tied to market hours since this only reads already-published data
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  track:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Track outcomes
+        run: python pipeline/track_outcomes.py
