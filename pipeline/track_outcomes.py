@@ -13,8 +13,12 @@ underlying math and trigger conditions are unchanged from the spec.
 
 Run from the repo root: `python pipeline/track_outcomes.py`
 """
+import csv
 import re
+import subprocess
 from datetime import date
+
+import pandas as pd
 
 from config import (
     CALENDAR_EXIT_STOP_PCT, CALENDAR_EXIT_TARGET_PCT, CONDOR_EXIT_TARGET_PCT,
@@ -249,3 +253,130 @@ def evaluate_trade(strategy, legs, signals_by_date, today):
         return "UNRESOLVED_AT_EXPIRATION", today.isoformat(), None
 
     return "OPEN", None, None
+
+
+def _load_all_signals():
+    """{date_str: {contract_symbol: last_price}} for every signals.csv
+    currently in the repo."""
+    result = {}
+    if not SIGNALS_DIR.exists():
+        return result
+    for f in sorted(SIGNALS_DIR.glob("*.csv")):
+        df = pd.read_csv(f, usecols=["contract_symbol", "last_price"])
+        result[f.stem] = dict(zip(df["contract_symbol"], df["last_price"]))
+    return result
+
+
+def _entry_info_for_trade(trade_rows):
+    """trade_rows: every ledger row sharing one trade_id. Returns
+    (entry_date, legs) -- legs is [] if entry pricing can't be recovered
+    (e.g. a malformed rec: cell)."""
+    entry_date = trade_rows[0]["trade_id"][:10]
+    rec_col = f"rec:{entry_date}"
+    legs = []
+    for row in trade_rows:
+        cell = row.get(rec_col, "")
+        if not cell or "/" not in cell:
+            continue
+        contract_symbol, price = cell.rsplit("/", 1)
+        expiration, _option_type, strike = parse_contract(contract_symbol)
+        legs.append({
+            "leg_role": row["leg_role"],
+            "entry_price": float(price),
+            "contract_symbol": contract_symbol,
+            "expiration": expiration,
+            "strike": strike,
+        })
+    return entry_date, legs
+
+
+def git_pull():
+    result = subprocess.run(["git", "pull"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=120)
+    if result.returncode != 0:
+        raise RuntimeError(f"git pull failed: {result.stderr}")
+    return result.stdout.strip()
+
+
+def commit_and_push(paths, message):
+    paths = [str(p) for p in paths]
+    subprocess.run(["git", "add", *paths], cwd=PROJECT_DIR, check=True, timeout=60)
+    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_DIR, timeout=30)
+    if diff.returncode == 0:
+        return "no_changes"
+    subprocess.run(["git", "commit", "-m", message], cwd=PROJECT_DIR, check=True, timeout=60)
+    subprocess.run(["git", "push"], cwd=PROJECT_DIR, check=True, timeout=120)
+    return "pushed"
+
+
+def run_track_outcomes():
+    print("Pulling latest from GitHub...")
+    print(git_pull())
+
+    if not LEDGER_PATH.exists():
+        print("No recommendation ledger yet -- nothing to track")
+        return {"status": "no_data"}
+
+    with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        fieldnames = list(reader.fieldnames or [])
+        rows = list(reader)
+
+    for col in ("outcome_status", "outcome_date", "realized_pct"):
+        if col not in fieldnames:
+            fieldnames.append(col)
+
+    signals_by_date = _load_all_signals()
+    today = date.today()
+
+    by_trade_id = {}
+    for row in rows:
+        by_trade_id.setdefault(row["trade_id"], []).append(row)
+
+    updated = 0
+    for trade_id, trade_rows in by_trade_id.items():
+        current_status = trade_rows[0].get("outcome_status", "")
+        if current_status in TERMINAL_STATUSES:
+            continue
+
+        strategy = trade_rows[0]["strategy"]
+        if strategy not in EVALUATORS:
+            print(f"{trade_id}: unknown strategy {strategy!r} -- skipping")
+            continue
+
+        try:
+            _entry_date, legs = _entry_info_for_trade(trade_rows)
+            if not legs:
+                print(f"{trade_id}: no recoverable entry legs -- skipping")
+                continue
+            status, outcome_date, realized_pct = evaluate_trade(strategy, legs, signals_by_date, today)
+        except Exception as exc:
+            print(f"{trade_id}: SKIPPED ({exc})")
+            continue
+
+        if status == "OPEN" and current_status == "OPEN":
+            continue
+
+        for row in trade_rows:
+            row["outcome_status"] = status
+            row["outcome_date"] = outcome_date or ""
+            row["realized_pct"] = round(realized_pct, 4) if realized_pct is not None else ""
+        updated += 1
+        print(f"{trade_id}: {strategy} -> {status}")
+
+    if updated == 0:
+        print("No trade outcomes changed")
+        return {"status": "no_changes", "updated": 0}
+
+    with open(LEDGER_PATH, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in rows:
+            writer.writerow({c: row.get(c, "") for c in fieldnames})
+
+    status = commit_and_push([LEDGER_PATH], f"Track outcomes: {updated} trade(s) updated")
+    print(f"Publish status: {status}")
+    return {"status": status, "updated": updated}
+
+
+if __name__ == "__main__":
+    print(run_track_outcomes())
