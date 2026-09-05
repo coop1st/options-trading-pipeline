@@ -18,8 +18,9 @@ from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
     CALENDAR_MIN_FRONT_DAYS, CALENDAR_SHORT_DISCOUNT, CONDOR_DELTA_MAX, CONDOR_DELTA_MIN,
     CONDOR_MAX_DTE, CONDOR_MIN_DTE, EQUITY_MIN_DAILY_VOLUME, MAX_LOSS_PCT_PER_TRADE,
-    MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TOP_N_CANDIDATES, VERTICAL_DELTA_BAND,
-    VERTICAL_MAX_DTE, VERTICAL_MIN_DTE, VERTICAL_SPREAD_WIDTHS,
+    MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TAIL_HEDGE_PRIORITY, TOP_N_CANDIDATES,
+    UNIT_MAX_DELTA, UNIT_MAX_PRICE, VERTICAL_DELTA_BAND, VERTICAL_MAX_DTE, VERTICAL_MIN_DTE,
+    VERTICAL_SPREAD_WIDTHS,
 )
 from db import get_atr_row, get_term_structure_spread_history, init_db
 from directional_bias import fetch_directional_bias
@@ -28,6 +29,21 @@ from strategy_rules import (
     build_calendars, build_directional_longs, build_double_diagonals,
     build_iron_condors, build_vertical_credit_spreads,
 )
+
+# ^VIX (added to the watchlist in cloud/fetch_options_snapshot.py purely
+# to feed build_units_reminder below) is excluded from every
+# strategy-family builder -- not for scope discipline, but because VIX
+# options are cash-settled and price off VIX FUTURES, not spot VIX
+# (income-strategies.md SS6's flash-crash case study), while this
+# pipeline's Black-Scholes Greeks are computed against spot
+# underlying_price, so any delta/candidate this pipeline would build on
+# ^VIX is unreliable by the books' own logic. SPY/VXX/UVXY don't have
+# this problem (their options are standard American-style, spot-priced
+# ETP options) and ^SPX doesn't either (Bittman explicitly recommends
+# SPX for income strategies, income-strategies.md SS1 -- its index
+# options are conventionally modeled off spot, unlike VIX's
+# futures-tracking quirk) -- both remain eligible for normal screening.
+STRATEGY_SCREENING_EXCLUSIONS = {"^VIX"}
 
 SIGNALS_DIR = PROJECT_DIR / "data" / "github_sync" / "signals"
 LEDGER_PATH = PROJECT_DIR / "data" / "github_sync" / "options_ledger" / "options_recommendation_ledger.csv"
@@ -55,6 +71,7 @@ def _other_expirations_atm_iv(signals, symbol, this_expiration):
 def build_all_candidates(signals, snapshot_date, bias):
     get_atr = lambda symbol: (get_atr_row(symbol) or {}).get("atr")
     get_term_history = lambda sym, f, b: get_term_structure_spread_history(sym, f, b, snapshot_date)
+    signals = signals[~signals["symbol"].isin(STRATEGY_SCREENING_EXCLUSIONS)]
 
     candidates = []
     candidates += build_vertical_credit_spreads(
@@ -136,6 +153,36 @@ def write_ledger(ranked, snapshot_date, company_names):
     return len(rows)
 
 
+def _cheapest_unit(signals, symbol):
+    sym_df = signals[(signals["symbol"] == symbol) & (signals["type"] == "put") & (signals["delta"].abs() < UNIT_MAX_DELTA)]
+    sym_df = sym_df[sym_df["last_price"] <= UNIT_MAX_PRICE]
+    if sym_df.empty:
+        return None
+    row = sym_df.loc[sym_df["last_price"].idxmin()]
+    return {"symbol": symbol, "contract_symbol": row["contract_symbol"], "last_price": row["last_price"], "delta": row["delta"]}
+
+
+def build_units_reminder(signals):
+    """risk-management-and-position-sizing.md SS8: any book of premium-
+    selling trades should carry a standing tail hedge. Not a scored/
+    ranked candidate -- a standing reminder line, citing whichever
+    tail-hedge instrument actually has usable data that day, tried in
+    priority order per hedge type. If none do, the reminder still fires
+    with the rule restated, per the spec's fail-loud-not-silent policy
+    applied to a soft reminder."""
+    examples = {}
+    for hedge_type, priority_list in TAIL_HEDGE_PRIORITY.items():
+        for symbol in priority_list:
+            unit = _cheapest_unit(signals, symbol)
+            if unit is not None:
+                examples[hedge_type] = unit
+                break
+    return {
+        "rule": "Hold 5-10% of allocated trading capital in cheap, deep-OTM SPX puts or VIX calls, bought before it's needed.",
+        "examples": examples,
+    }
+
+
 def commit_and_push(paths, message):
     paths = [str(p) for p in paths]
     subprocess.run(["git", "add", *paths], cwd=PROJECT_DIR, check=True, timeout=60)
@@ -173,9 +220,12 @@ def run_screen_trades():
     n_rows = write_ledger(ranked, snapshot_date, company_names)
     print(f"Wrote {n_rows} leg rows to {LEDGER_PATH}")
 
+    units_reminder = build_units_reminder(signals)
+    print(f"Units reminder: {units_reminder}")
+
     status = commit_and_push([LEDGER_PATH], f"Options recommendations: {snapshot_date} ({len(ranked)} candidates)")
     print(f"Publish status: {status}")
-    return {"status": status, "date": snapshot_date, "candidates": len(ranked)}
+    return {"status": status, "date": snapshot_date, "candidates": len(ranked), "units_reminder": units_reminder}
 
 
 if __name__ == "__main__":
