@@ -147,24 +147,48 @@ Each family's simulated exit rule is drawn from the same book citations
 already used to build the candidate in sub-project 3 — no new criteria
 invented. All monetary figures are recovered **purely from the ledger's
 already-recorded per-leg entry prices** (`leg_role` + the `rec:` column's
-`contractSymbol/price`), not from any new stored field:
+`contractSymbol/price`), not from any new stored field. Each leg's own
+expiration, strike, and type are likewise recovered by parsing its OCC
+`contractSymbol` directly (e.g. `AAPL260828C00310000` → expiration
+2026-08-28, call, strike 310) — no schema change needed for that either.
 
-- **Credit received** (credit structures: verticals, condors) = sum of
-  short-leg entry prices − sum of long-leg entry prices.
-- **Debit paid** (debit structures: long calendars, double diagonals) =
-  sum of long-leg entry prices − sum of short-leg entry prices.
-- **Cost to close now**, on any later date = sum of each short leg's
-  *current* price (what it costs to buy back) − sum of each long leg's
-  current price (what it's worth to sell) — the mirror-image calculation,
-  evaluated using that date's `signals.csv`.
+Two pairs of mirror-image quantities, one pair per structure type — using
+one sign convention for both would make at least one family's numbers
+read backwards, so this spec keeps them separate and names them for what
+they represent:
+
+- **Credit structures** (vertical credit spread, iron condor, **short**
+  calendar — buying the cheaper front month and selling the pricier back
+  month nets a credit, per `spreads-and-combinations.md` §4): 
+  `credit_received` = sum of short-leg entry prices − sum of long-leg
+  entry prices; `cost_to_close_now` (on any later date) = sum of each
+  short leg's *current* price (what it costs to buy back) − sum of each
+  long leg's current price (what it's worth to sell). Profit realized so
+  far = `credit_received − cost_to_close_now`.
+- **Debit structures** (long call/put, **long** calendar, double
+  diagonal): `debit_paid` = sum of long-leg entry prices − sum of
+  short-leg entry prices (for a bare long call/put, this is simply the
+  premium paid, since there's no short leg); `current_value_now` (on any
+  later date) = sum of each long leg's current price − sum of each short
+  leg's current price. Profit realized so far = `current_value_now −
+  debit_paid`.
+
+**Which expiration governs "DTE" for calendars/diagonals**: these
+structures have two different expirations across their legs. "DTE" in
+the rules below means the **nearer** of the two — Bittman's caution
+against holding a calendar "into the final days before expiration"
+(`spreads-and-combinations.md` §4) is about gamma risk on whichever leg
+is closer to expiring, regardless of whether that leg happens to be
+labeled short or long for a given calendar direction.
 
 | Family | Simulated rule | Source |
 |---|---|---|
-| Iron condor | `HIT_TARGET` once `(credit − cost_to_close_now) / credit ≥ 0.55`; `TIME_EXIT` once DTE remaining ≤ 30; `HIT_MAX_LOSS` once `cost_to_close_now − credit ≥ credit` (the absolute ceiling — "never exceed the value of credit received"); checked in that priority order on whichever comes first chronologically. | `income-strategies.md` §4 |
-| Vertical credit spread | `HIT_TARGET` once `(credit − cost_to_close_now) / credit ≥ 0.10`; `HIT_MAX_LOSS` once the spread reaches its full theoretical max loss (`cost_to_close_now == width`, i.e. both legs settled against the short side). | `spreads-and-combinations.md` §1 |
-| Calendar (long/short) | `HIT_TARGET` once realized gain ≥ 5% of debit/margin; `HIT_MAX_LOSS` once realized loss ≥ 10% of debit/margin. | `spreads-and-combinations.md` §4 |
-| Double diagonal | Same ~10%-of-margin target/stop discipline as calendar/condor (no more specific book number given for this structure). | `spreads-and-combinations.md` §5 |
-| Long call / long put | `HIT_MAX_LOSS` once `cost_to_close_now / premium_paid ≤ 0.50` (50% of premium lost); `HIT_TARGET` once `cost_to_close_now / premium_paid ≥ 2.00` (premium doubled); otherwise ride to expiration, outcome = final intrinsic value vs. premium paid. See rationale immediately below — this is this spec's own choice, not a book formula. |
+| Iron condor | `HIT_TARGET` once `(credit_received − cost_to_close_now) / credit_received ≥ 0.55`; `TIME_EXIT` once DTE remaining ≤ 30 (checked only if neither target nor max-loss has fired yet); `HIT_MAX_LOSS` once `cost_to_close_now − credit_received ≥ credit_received` (the absolute ceiling — "never exceed the value of credit received"). Walked chronologically; whichever of the three fires first on the earliest date wins. | `income-strategies.md` §4 |
+| Vertical credit spread | `HIT_TARGET` once `(credit_received − cost_to_close_now) / credit_received ≥ 0.10`; `HIT_MAX_LOSS` once the spread reaches its full theoretical max loss (`cost_to_close_now == width`, both legs settled against the short side). No book-given time-based exit for this family — falls through to the expiration fallback below if neither fires. | `spreads-and-combinations.md` §1 |
+| Long calendar | `HIT_TARGET` once `(current_value_now − debit_paid) / debit_paid ≥ 0.05`; `HIT_MAX_LOSS` once `(debit_paid − current_value_now) / debit_paid ≥ 0.10`. | `spreads-and-combinations.md` §4 |
+| Short calendar | `HIT_TARGET` once `(credit_received − cost_to_close_now) / credit_received ≥ 0.05`; `HIT_MAX_LOSS` once `(cost_to_close_now − credit_received) / credit_received ≥ 0.10` — same 5%/10% thresholds as the long calendar, but measured against `credit_received` since this direction is a credit structure, not a debit one. | `spreads-and-combinations.md` §4 |
+| Double diagonal | Same ~10%-of-`debit_paid` target/stop discipline as long calendar (no more specific book number given for this structure; it's a debit structure per sub-project 3's own construction). | `spreads-and-combinations.md` §5 |
+| Long call / long put | `HIT_MAX_LOSS` once `current_value_now / debit_paid ≤ 0.50` (50% of premium lost); `HIT_TARGET` once `current_value_now / debit_paid ≥ 2.00` (premium doubled); otherwise ride to expiration, outcome = final intrinsic value vs. premium paid. See rationale immediately below — this is this spec's own choice, not a book formula. |
 
 **Rationale for the long call/put rule** (an explicit exit strategy is
 required here — an earlier draft of this spec defaulted to "hold to
