@@ -144,3 +144,10 @@ DIRECTIONAL_TARGET_PCT = 2.00
 # Minimum terminal trades before an aggregate stat is reported as
 # meaningful rather than flagged "too few trades yet."
 MIN_TERMINAL_TRADES_FOR_STATS = 5
+
+# Selection-label thesis threshold (sub-project 5): a thesis criterion
+# (iv_richness, skew_quality, term_structure, directional_alignment)
+# must score at or above this to count as a driver of the label -- a
+# book-consistent but not book-mandated bar for "meaningfully above the
+# 50 NEUTRAL baseline," not a book number.
+LABEL_THESIS_THRESHOLD = 65.0
