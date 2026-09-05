@@ -114,3 +114,15 @@ MAX_LOSS_PCT_PER_TRADE = 0.02
 
 # Number of ranked candidates published to the recommendation ledger.
 TOP_N_CANDIDATES = 20
+
+# risk-management-and-position-sizing.md SS8 (Chen/Sebastian ch.3/8/11):
+# "units" -- cheap, deep-OTM tail hedges. Priority-ordered fallback
+# chains per hedge type (New Data Prerequisites item 4) -- component B's
+# existing skip-and-continue handling is what makes the fallback work:
+# if a symbol isn't in that day's signals, it's simply not considered.
+UNIT_MAX_DELTA = 0.05
+UNIT_MAX_PRICE = 3.0
+TAIL_HEDGE_PRIORITY = {
+    "equity downside": ["^SPX", "SPY"],
+    "volatility spike": ["^VIX", "VXX", "UVXY"],
+}
