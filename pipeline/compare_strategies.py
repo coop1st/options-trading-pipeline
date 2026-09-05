@@ -40,7 +40,17 @@ def _load_terminal_trades():
             is_win = row["outcome_status"] in WINNING_STATUSES or (
                 row["outcome_status"] == "TIME_EXIT" and realized_pct is not None and realized_pct > 0
             )
-            trade = {"strategy": row["strategy"], "realized_pct": realized_pct, "is_win": is_win}
+            trade = {
+                # None (not "no_dominant_thesis") for a trade recommended
+                # before selection_label existed -- it predates the
+                # feature, its real label is simply unknown, not "none
+                # found." Excluded from by_label below, same as a missing
+                # criterion is excluded from by_criterion.
+                "strategy": row["strategy"],
+                "selection_label": row.get("selection_label") or None,
+                "realized_pct": realized_pct,
+                "is_win": is_win,
+            }
             for c in CRITERIA:
                 val = row.get(c)
                 trade[c] = float(val) if val not in (None, "") else None
@@ -48,24 +58,39 @@ def _load_terminal_trades():
     return list(trades.values())
 
 
-def by_family(trades):
-    families = {}
+def _by_group(trades, group_key, result_key):
+    """Shared win-rate/avg-realized_pct aggregation for any grouping
+    (strategy family, selection label) -- same math, different key.
+    Trades where group_key is None (e.g. a pre-selection_label-feature
+    row) are excluded, not lumped into a fabricated group."""
+    groups = {}
     for t in trades:
-        families.setdefault(t["strategy"], []).append(t)
+        key = t.get(group_key)
+        if key is None:
+            continue
+        groups.setdefault(key, []).append(t)
 
     rows = []
-    for strategy, group in families.items():
+    for value, group in groups.items():
         n = len(group)
         wins = sum(1 for t in group if t["is_win"])
         pcts = [t["realized_pct"] for t in group if t["realized_pct"] is not None]
         rows.append({
-            "strategy": strategy,
+            result_key: value,
             "sample_size": n,
             "win_rate": round(wins / n, 3) if n else None,
             "avg_realized_pct": round(statistics.mean(pcts), 4) if pcts else None,
             "note": "" if n >= MIN_TERMINAL_TRADES_FOR_STATS else "too few trades to be meaningful yet",
         })
     return rows
+
+
+def by_family(trades):
+    return _by_group(trades, "strategy", "strategy")
+
+
+def by_label(trades):
+    return _by_group(trades, "selection_label", "selection_label")
 
 
 def by_criterion(trades):
@@ -122,6 +147,7 @@ def run_compare_strategies():
     print(f"{len(trades)} scoreable terminal trade(s) found")
 
     family_rows = by_family(trades)
+    label_rows = by_label(trades)
     criterion_rows = by_criterion(trades)
 
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -130,6 +156,8 @@ def run_compare_strategies():
         writer.writerow(["section", "key", "sample_size", "win_rate_or_above_median", "avg_realized_pct_or_below_median", "note"])
         for r in family_rows:
             writer.writerow(["by_family", r["strategy"], r["sample_size"], r["win_rate"], r["avg_realized_pct"], r["note"]])
+        for r in label_rows:
+            writer.writerow(["by_label", r["selection_label"], r["sample_size"], r["win_rate"], r["avg_realized_pct"], r["note"]])
         for r in criterion_rows:
             writer.writerow(["by_criterion", r["criterion"], r["sample_size"], r["above_median_win_rate"], r["below_median_win_rate"], r["note"]])
 
