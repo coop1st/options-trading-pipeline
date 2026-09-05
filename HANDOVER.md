@@ -5,10 +5,29 @@ Claude Code sessions. Everything referenced here is committed and pushed
 to `master` at https://github.com/coop1st/options-trading-pipeline
 (public repo). Read this file first, then the specs/plans it points to.
 
-**All four originally-planned sub-projects are now built and live.** A
-possible sub-project 5 (monthly adaptive-learning tuning suggestions,
-building on sub-project 4's outcome data) has been discussed but not yet
-designed — see "What's next" below.
+**All four originally-planned sub-projects are built and live. Sub-project
+5 (monthly adaptive-tuning suggestions) has a written, reviewed-and-
+committed design spec, but no implementation plan or code yet** — see
+"What's next" below and `docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md`.
+
+**Two things shipped immediately as sub-project 5's prerequisites, ahead
+of its own implementation plan** (same "don't lose history waiting"
+principle sub-project 4 established for score-breakdown persistence):
+
+1. **Bug fix**: `build_iron_condors`/`build_calendars`/`build_double_diagonals`
+   hardcoded `"tilt": None` and never received the real bias signal, so
+   `scoring.py`'s `directional_alignment` criterion was a constant
+   `100.0` for these three families regardless of the real market tilt —
+   contradicting sub-project 3's own approved spec. Fixed; verified both
+   synthetically and against real data.
+2. **`selection_label`**: a new ledger column, assigned at recommendation
+   time, naming which of the 4 "thesis" criteria (`iv_richness`,
+   `skew_quality`, `term_structure`, `directional_alignment`) scored
+   meaningfully above neutral for that candidate — e.g. `"rich_iv+rich_skew"`,
+   directly matching the books' own "richest setups combine high skew
+   and high ATM IV." `compare_strategies.py` now also reports win
+   rate/avg realized P&L **by label**, alongside its existing by-family
+   and by-criterion views.
 
 ## Where things stand
 
@@ -128,15 +147,19 @@ worth knowing about**:
 
 ## What's next
 
-- **Sub-project 5 (proposed, not yet designed)**: the user asked for a
-  monthly "advanced learning feedback" system that goes beyond
-  sub-project 4's reporting to generate concrete change suggestions
-  (e.g., re-weighting `scoring.py`'s criteria, retuning exit-rule
-  percentages) based on accumulated performance data — analogous to the
-  Stocks project's existing weekly "Pick Tuning Review" routine. Needs
-  its own brainstorming → spec → plan cycle, and depends on sub-project
-  4's outcome-tracking data actually accumulating first (there's nothing
-  to learn from yet — every terminal-trade count is currently 0).
+- **Sub-project 5 — spec written, reviewed, and committed; no plan yet.**
+  `docs/superpowers/specs/2026-09-05-adaptive-tuning-design.md` designs a
+  monthly tuning-suggestion system built on a three-tier parameter
+  classification (book-verbatim numbers are never touched; this
+  project's own flagged implementation guesses and the composite score's
+  weighting are eligible for evidence-gated suggestions) — never
+  auto-applies anything, always a committed monthly file + digest email
+  for manual review. **Next step on resume: `writing-plans` for this
+  spec** (last asked of the user, awaiting their go-ahead as of this
+  handover). Needs sub-project 4's outcome data to actually accumulate
+  before any suggestion can fire — every terminal-trade count is
+  currently 0, so the system will run and correctly report "not enough
+  evidence yet" for a while regardless of when the plan ships.
 - **Let terminal trades start accumulating** — no action needed, just
   time: the SPY iron condor recommended 2026-09-05 needs to hit its 55%
   target, its max-loss ceiling, or 30 DTE before `track_outcomes.py` has
@@ -177,8 +200,9 @@ or similar to get the fix without modifying the cloud script itself.
   8 reference docs)
 - `docs/extraction-notes/` — per-chapter extraction notes (26 files, both
   books), traceability layer behind the skill
-- `docs/superpowers/specs/` — 4 design specs (playbook, pipeline,
-  strategy engine, strategy comparison)
+- `docs/superpowers/specs/` — 5 design specs (playbook, pipeline,
+  strategy engine, strategy comparison, adaptive tuning); the last has
+  no implementation plan yet
 - `docs/superpowers/plans/` — 4 implementation plans, all fully executed
 - `pipeline/` — local/cloud-shared pipeline code: `config.py`, `db.py`,
   `greeks.py`, `merge_and_score.py`, `atr.py`, `directional_bias.py`,
