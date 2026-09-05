@@ -1,0 +1,29 @@
+name: Compare strategies
+
+# Runs entirely in the cloud, weekly, after that day's track-outcomes
+# run. Aggregates scoreable terminal trades by family and by scoring
+# criterion, publishing a report the new weekly routine reads.
+
+on:
+  schedule:
+    - cron: "0 20 * * 0"  # Sunday 20:00 UTC, after the 19:00 UTC daily track-outcomes run
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Compare strategies
+        run: python pipeline/compare_strategies.py
