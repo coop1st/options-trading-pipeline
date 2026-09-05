@@ -88,3 +88,11 @@ VERTICAL_MIN_DTE = 30
 VERTICAL_MAX_DTE = 60
 VERTICAL_DELTA_BAND = (0.10, 0.30)
 VERTICAL_SPREAD_WIDTHS = [5, 10]
+
+# income-strategies.md SS4 / spreads-and-combinations.md SS2: iron
+# condor delta target and DTE window (45-75 is this spec's own
+# operationalization of the book's "around 60 days," not a book number).
+CONDOR_DELTA_MIN = 0.10
+CONDOR_DELTA_MAX = 0.15
+CONDOR_MIN_DTE = 45
+CONDOR_MAX_DTE = 75

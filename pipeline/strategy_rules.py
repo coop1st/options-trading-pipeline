@@ -115,3 +115,69 @@ def build_vertical_credit_spreads(signals, snapshot_date, bias, min_dte, max_dte
                     "tilt": tilt,
                 })
     return candidates
+
+
+def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_min, delta_max):
+    """income-strategies.md SS4 / spreads-and-combinations.md SS2. Hard
+    gates: delta_min-delta_max on both short strikes, min_dte-max_dte,
+    and today's ATM IV > the underlying's 14-day ATR -- gated only once
+    get_atr(symbol) returns a value; until then this gate is skipped for
+    that symbol with a visible note, matching the atm_iv_90d_percentile
+    precedent from sub-project 2."""
+    candidates = []
+    target_mid_delta = (delta_min + delta_max) / 2
+
+    for symbol, sym_df in signals.groupby("symbol"):
+        atr = get_atr(symbol)
+        for expiration, exp_df in sym_df.groupby("expiration"):
+            dte = _dte(expiration, snapshot_date)
+            if not (min_dte <= dte <= max_dte):
+                continue
+
+            atm_iv_row = exp_df["atm_iv"].dropna()
+            atm_iv = float(atm_iv_row.iloc[0]) if not atm_iv_row.empty else None
+            if atr is None:
+                print(f"{symbol}: no ATR yet -- skipping condor's IV-vs-ATR gate")
+            elif atm_iv is None or atm_iv <= atr:
+                continue
+
+            calls = exp_df[exp_df["type"] == "call"]
+            puts = exp_df[exp_df["type"] == "put"]
+            call_band = calls[(calls["delta"] >= delta_min) & (calls["delta"] <= delta_max)]
+            put_band = puts[(puts["delta"].abs() >= delta_min) & (puts["delta"].abs() <= delta_max)]
+            short_call = _nearest_by_abs_delta(call_band, target_mid_delta)
+            short_put = _nearest_by_abs_delta(put_band, target_mid_delta)
+            if short_call is None or short_put is None:
+                continue
+
+            long_call = _nearest_strike_row(calls[calls["strike"] > short_call["strike"]], short_call["strike"] + 10)
+            long_put = _nearest_strike_row(puts[puts["strike"] < short_put["strike"]], short_put["strike"] - 10)
+            if long_call is None or long_put is None:
+                continue
+
+            credit = (
+                short_call["last_price"] - long_call["last_price"]
+                + short_put["last_price"] - long_put["last_price"]
+            )
+            width = min(abs(long_call["strike"] - short_call["strike"]), abs(short_put["strike"] - long_put["strike"]))
+            if credit <= 0 or width <= 0:
+                continue
+
+            candidates.append({
+                "symbol": symbol,
+                "strategy": "iron condor",
+                "expiration": expiration,
+                "this_expiration_atm_iv": atm_iv,
+                "legs": [
+                    _leg(short_call, "short call"), _leg(long_call, "long call"),
+                    _leg(short_put, "short put"), _leg(long_put, "long put"),
+                ],
+                "credit": credit,
+                "width": width,
+                "max_loss": (width - credit) * 100,
+                "short_call_delta": short_call["delta"],
+                "short_put_delta": short_put["delta"],
+                "net_short": True,
+                "tilt": None,
+            })
+    return candidates
