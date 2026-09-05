@@ -216,3 +216,70 @@ def build_directional_longs(signals, bias, min_daily_volume):
             "tilt": tilt,
         })
     return candidates
+
+
+def build_calendars(signals, snapshot_date, get_term_structure_history, min_front_days, long_premium_min, long_premium_max, short_discount):
+    """spreads-and-combinations.md SS4. Hard gates: front-month premium
+    (>=long_premium_min, excluded above long_premium_max without manual
+    review) or discount (>=short_discount) to its 'normal' relationship
+    with the back month, front leg >= min_front_days from expiration,
+    and enough accumulated term-structure-spread history to judge
+    'normal' at all -- until then this symbol/expiration pair is skipped
+    with a visible note."""
+    candidates = []
+    for symbol, sym_df in signals.groupby("symbol"):
+        for opt_type, type_df in sym_df.groupby("type"):
+            expirations = sorted(type_df["expiration"].unique())
+            for i, front_exp in enumerate(expirations):
+                if _dte(front_exp, snapshot_date) < min_front_days:
+                    continue
+                front_atm_iv_series = type_df[type_df["expiration"] == front_exp]["atm_iv"].dropna()
+                if front_atm_iv_series.empty:
+                    continue
+                front_atm_iv = float(front_atm_iv_series.iloc[0])
+
+                for back_exp in expirations[i + 1:]:
+                    back_atm_iv_series = type_df[type_df["expiration"] == back_exp]["atm_iv"].dropna()
+                    if back_atm_iv_series.empty:
+                        continue
+                    back_atm_iv = float(back_atm_iv_series.iloc[0])
+
+                    history = get_term_structure_history(symbol, front_exp, back_exp)
+                    if len(history) < 5:
+                        print(f"{symbol} {front_exp}/{back_exp}: not enough term-structure history yet -- skipping calendar gate")
+                        continue
+                    normal_spread = sum(history) / len(history)
+                    current_spread = front_atm_iv - back_atm_iv
+                    if front_atm_iv == 0:
+                        continue
+                    premium = (current_spread - normal_spread) / front_atm_iv
+
+                    if long_premium_min <= premium <= long_premium_max:
+                        strategy, short_exp, long_exp = "long calendar", front_exp, back_exp
+                    elif -premium >= short_discount:
+                        strategy, short_exp, long_exp = "short calendar", back_exp, front_exp
+                    else:
+                        continue
+
+                    strike_row = _nearest_by_abs_delta(type_df[type_df["expiration"] == front_exp], 0.50)
+                    if strike_row is None:
+                        continue
+                    short_match = type_df[(type_df["expiration"] == short_exp) & (type_df["strike"] == strike_row["strike"])]
+                    long_match = type_df[(type_df["expiration"] == long_exp) & (type_df["strike"] == strike_row["strike"])]
+                    if short_match.empty or long_match.empty:
+                        continue
+                    short_row, long_row = short_match.iloc[0], long_match.iloc[0]
+
+                    net_debit = long_row["last_price"] - short_row["last_price"]
+                    candidates.append({
+                        "symbol": symbol,
+                        "strategy": strategy,
+                        "expiration": front_exp,
+                        "this_expiration_atm_iv": front_atm_iv,
+                        "legs": [_leg(short_row, f"short {opt_type}"), _leg(long_row, f"long {opt_type}")],
+                        "max_loss": abs(net_debit) * 100,
+                        "premium": premium,
+                        "net_short": strategy == "long calendar",
+                        "tilt": None,
+                    })
+    return candidates
