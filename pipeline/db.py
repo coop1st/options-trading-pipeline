@@ -39,6 +39,21 @@ CREATE TABLE IF NOT EXISTS atm_iv_history (
     atm_iv REAL,
     PRIMARY KEY (symbol, expiration, snapshot_date)
 );
+
+CREATE TABLE IF NOT EXISTS skew_history (
+    symbol TEXT NOT NULL,
+    expiration TEXT NOT NULL,
+    snapshot_date TEXT NOT NULL,
+    skew_put_pct_of_atm REAL,
+    skew_call_pct_of_atm REAL,
+    PRIMARY KEY (symbol, expiration, snapshot_date)
+);
+
+CREATE TABLE IF NOT EXISTS atr_by_symbol (
+    symbol TEXT PRIMARY KEY,
+    atr REAL,
+    computed_date TEXT
+);
 """
 
 
@@ -141,6 +156,69 @@ def get_most_recent_snapshot_date():
     with get_connection() as conn:
         row = conn.execute("SELECT MAX(snapshot_date) FROM options_chains").fetchone()
         return row[0] if row and row[0] is not None else None
+
+
+def upsert_skew_history(rows):
+    """rows: iterable of dicts with symbol, expiration, snapshot_date,
+    skew_put_pct_of_atm, skew_call_pct_of_atm"""
+    with get_connection() as conn:
+        conn.executemany(
+            """
+            INSERT INTO skew_history (
+                symbol, expiration, snapshot_date,
+                skew_put_pct_of_atm, skew_call_pct_of_atm
+            ) VALUES (
+                :symbol, :expiration, :snapshot_date,
+                :skew_put_pct_of_atm, :skew_call_pct_of_atm
+            )
+            ON CONFLICT(symbol, expiration, snapshot_date) DO UPDATE SET
+                skew_put_pct_of_atm=excluded.skew_put_pct_of_atm,
+                skew_call_pct_of_atm=excluded.skew_call_pct_of_atm
+            """,
+            rows,
+        )
+
+
+def get_atr_row(symbol):
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        row = conn.execute(
+            "SELECT atr, computed_date FROM atr_by_symbol WHERE symbol = ?", (symbol,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def upsert_atr(symbol, atr, computed_date):
+    with get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO atr_by_symbol (symbol, atr, computed_date)
+            VALUES (?, ?, ?)
+            ON CONFLICT(symbol) DO UPDATE SET atr=excluded.atr, computed_date=excluded.computed_date
+            """,
+            (symbol, atr, computed_date),
+        )
+
+
+def get_term_structure_spread_history(symbol, front_expiration, back_expiration, before_date, window_days=90):
+    """Front-minus-back ATM-IV spread on every prior date both
+    expirations have a recorded atm_iv -- a query over the existing
+    atm_iv_history table, not new persistence (New Data Prerequisites
+    item 3)."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT f.atm_iv, b.atm_iv
+            FROM atm_iv_history f
+            JOIN atm_iv_history b
+              ON f.symbol = b.symbol AND f.snapshot_date = b.snapshot_date
+            WHERE f.symbol = ? AND f.expiration = ? AND b.expiration = ?
+              AND f.snapshot_date < ? AND f.snapshot_date >= date(?, ?)
+              AND f.atm_iv IS NOT NULL AND b.atm_iv IS NOT NULL
+            """,
+            (symbol, front_expiration, back_expiration, before_date, before_date, f"-{window_days} days"),
+        ).fetchall()
+        return [f - b for f, b in rows]
 
 
 def get_latest_snapshot_rows(snapshot_date):
