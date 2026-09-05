@@ -1,0 +1,74 @@
+{
+  "generated_date": "2026-09-05",
+  "total_terminal_trades": 0,
+  "min_trades_for_suggestion": 10,
+  "criterion_correlations": {
+    "iv_richness": {
+      "n": 0,
+      "correlation": null
+    },
+    "skew_quality": {
+      "n": 0,
+      "correlation": null
+    },
+    "risk_reward": {
+      "n": 0,
+      "correlation": null
+    },
+    "pop_proxy": {
+      "n": 0,
+      "correlation": null
+    },
+    "term_structure": {
+      "n": 0,
+      "correlation": null
+    },
+    "liquidity": {
+      "n": 0,
+      "correlation": null
+    },
+    "directional_alignment": {
+      "n": 0,
+      "correlation": null
+    }
+  },
+  "weight_sensitivity": {
+    "iv_richness": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "skew_quality": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "risk_reward": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "pop_proxy": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "term_structure": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "liquidity": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    },
+    "directional_alignment": {
+      "baseline_correlation": null,
+      "doubled_weight_correlation": null,
+      "halved_weight_correlation": null
+    }
+  },
+  "label_performance": [],
+  "directional_exit_sweep": null
+}
