@@ -157,15 +157,22 @@ def _evaluate_double_diagonal(legs, price_lookup, dte, width):
     return None
 
 
-def _evaluate_directional_long(legs, price_lookup, dte, width):
+def _evaluate_directional_long(legs, price_lookup, dte, width,
+                                stop_pct=DIRECTIONAL_STOP_PCT, target_pct=DIRECTIONAL_TARGET_PCT):
+    """stop_pct/target_pct default to the live config constants -- the
+    only reason they're parameters at all is sub-project 5's exit-side
+    sweep (generate_tuning_stats.py), which re-evaluates already-
+    terminal trades' known price paths under alternate values. No other
+    evaluator in this module takes overrides: every other family's exit
+    rule is Tier 1 (book-verbatim), never swept."""
     debit = _debit_paid(legs)
     if debit <= 0:
         return None
     value = _current_value_now(legs, price_lookup)
     ratio = value / debit
-    if ratio <= DIRECTIONAL_STOP_PCT:
+    if ratio <= stop_pct:
         return "HIT_MAX_LOSS", (value - debit) / debit
-    if ratio >= DIRECTIONAL_TARGET_PCT:
+    if ratio >= target_pct:
         return "HIT_TARGET", (value - debit) / debit
     return None
 
@@ -201,12 +208,16 @@ def _expire(legs, price_lookup, structure_type):
     return status, realized_pct
 
 
-def evaluate_trade(strategy, legs, signals_by_date, today):
+def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=None):
     """Core re-scan-from-entry algorithm. legs: list of dicts with
     leg_role, entry_price, contract_symbol, expiration, strike.
     signals_by_date: {date_str: {contract_symbol: last_price}}. Returns
     (status, outcome_date, realized_pct); realized_pct is None for OPEN
-    and UNRESOLVED_AT_EXPIRATION."""
+    and UNRESOLVED_AT_EXPIRATION. evaluator_overrides (optional dict of
+    kwargs) is forwarded to the evaluator -- meaningful only for
+    "long call"/"long put" (see _evaluate_directional_long); passing it
+    for any other strategy will raise, since those evaluators take no
+    such kwargs, by design (Tier 1 exit rules are never swept)."""
     if strategy not in EVALUATORS:
         raise ValueError(f"No evaluator for strategy {strategy!r}")
 
@@ -218,6 +229,7 @@ def evaluate_trade(strategy, legs, signals_by_date, today):
 
     evaluator = EVALUATORS[strategy]
     structure_type = STRUCTURE_TYPE[strategy]
+    overrides = evaluator_overrides or {}
 
     last_fully_priced_date = None
     last_price_lookup = None
@@ -232,7 +244,7 @@ def evaluate_trade(strategy, legs, signals_by_date, today):
         last_fully_priced_date = snapshot_date
         last_price_lookup = price_lookup
 
-        result = evaluator(legs, price_lookup, dte, width)
+        result = evaluator(legs, price_lookup, dte, width, **overrides)
         if result is not None:
             status, realized_pct = result
             return status, snapshot_date, realized_pct
