@@ -1,10 +1,12 @@
 section,key,sample_size,win_rate_or_above_median,avg_realized_pct_or_below_median,note
 by_family,iron condor,1,1.0,0.8061,too few trades to be meaningful yet
+by_family,short calendar,2,0.5,0.0096,too few trades to be meaningful yet
 by_label,term_structure_edge+directional_confirmation,1,1.0,0.8061,too few trades to be meaningful yet
-by_criterion,iv_richness,1,,,too few trades to be meaningful yet
-by_criterion,skew_quality,1,,,too few trades to be meaningful yet
-by_criterion,risk_reward,1,,,too few trades to be meaningful yet
-by_criterion,pop_proxy,1,,,too few trades to be meaningful yet
-by_criterion,term_structure,1,,,too few trades to be meaningful yet
-by_criterion,liquidity,1,,,too few trades to be meaningful yet
-by_criterion,directional_alignment,1,,,too few trades to be meaningful yet
+by_label,directional_confirmation,2,0.5,0.0096,too few trades to be meaningful yet
+by_criterion,iv_richness,3,,,too few trades to be meaningful yet
+by_criterion,skew_quality,3,,,too few trades to be meaningful yet
+by_criterion,risk_reward,3,,,too few trades to be meaningful yet
+by_criterion,pop_proxy,3,,,too few trades to be meaningful yet
+by_criterion,term_structure,3,,,too few trades to be meaningful yet
+by_criterion,liquidity,3,,,too few trades to be meaningful yet
+by_criterion,directional_alignment,3,,,too few trades to be meaningful yet
