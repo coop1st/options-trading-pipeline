@@ -14,8 +14,9 @@ which self-corrects the next day.
 Run from the repo root: `python cloud/fetch_daily_true_range.py`
 """
 import os
-from datetime import date
+from datetime import datetime
 from io import StringIO
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -27,6 +28,11 @@ LEDGER_URL = (
 )
 OUT_PATH = "data/github_sync/daily_true_range/true_range_ledger.csv"
 FIXED_COLS = ["symbol", "company_name"]
+
+# Dated by the US market day, not the runner's UTC date: GitHub starts this
+# cron hours late, and a run finishing after 00:00 UTC was filed under the
+# next day and then overwritten (lost 2026-10-08).
+MARKET_TZ = ZoneInfo("America/New_York")
 
 
 def fetch_watchlist():
@@ -65,7 +71,7 @@ def _true_range(symbol, prior_close):
 
 
 def main():
-    today = date.today().isoformat()
+    today = datetime.now(MARKET_TZ).date().isoformat()
     watchlist = fetch_watchlist()
     ledger = load_ledger()
 
