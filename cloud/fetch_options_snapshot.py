@@ -12,7 +12,8 @@ Run from the repo root: `python cloud/fetch_options_snapshot.py <session>`
 import os
 import sys
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -23,6 +24,12 @@ LEDGER_URL = (
     "main/data/github_sync/daytrade_ledger/stock_price_ledger.csv"
 )
 MAX_DTE_DAYS = 75
+
+# Snapshots are dated by the US market day, not the runner's UTC date: GitHub
+# starts these crons hours late, and a close run finishing after 00:00 UTC
+# was filed under the next day and then overwritten by that day's real close
+# (lost the 2026-10-05 and 2026-10-08 closes).
+MARKET_TZ = ZoneInfo("America/New_York")
 
 # Tail-hedge instruments for the portfolio-insurance reminder (New Data
 # Prerequisites item 4) -- priority-ordered per hedge type in
@@ -98,7 +105,7 @@ def main():
         print("Usage: python cloud/fetch_options_snapshot.py <open|mid|close>")
         sys.exit(1)
 
-    today = date.today()
+    today = datetime.now(MARKET_TZ).date()
     symbols = sorted(set(fetch_watchlist()) | set(TAIL_HEDGE_SYMBOLS))  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
     print(f"Watchlist: {len(symbols)} symbols (including {len(TAIL_HEDGE_SYMBOLS)} tail-hedge instruments)")
 

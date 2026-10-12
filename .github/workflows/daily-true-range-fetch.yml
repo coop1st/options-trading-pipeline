@@ -38,6 +38,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
-            git commit -m "Daily true range: $(date -u +%Y-%m-%d)"
+            git commit -m "Daily true range: $(TZ=America/New_York date +%Y-%m-%d)"
             git push
           fi
