@@ -69,7 +69,30 @@ staleness alert again.
 - To check the routine's health, read the draft's content, not just the
   run status. An alert-only run still reports success.
 
-**Open items:** none from this session. The older "What's next" list
+**Outcome-tracking bug found the same evening (commit `bbc65cd`):**
+`evaluate_trade` replayed *every* signals file, including files from
+before the trade's entry date, so trades resolved on prices from weeks
+before they were recommended. 23 recorded outcomes are dated on or
+before entry. It now takes `entry_date` and skips snapshots up to and
+including it. Regression checks were added, and all 5 verify scripts
+pass. **Already-terminal ledger rows were NOT re-scored**: the tracker
+skips terminal trades, and clearing the outcome columns needs the user's
+OK (the auto-mode classifier blocked it). Until that's done,
+`strategy_performance_report.csv` and `tuning_suggestions_2026-10.md`
+are built on partly wrong outcomes. A read-only recompute with the fix
+gives 35 scoreable trades: iron condors 7/7 wins, short calendars
+20/27, long calendars 0/1, with 46 still open.
+
+**Price-data concerns spotted (not fixed):** outcomes are valued at
+`last_price`, which can be stale. Two clear cases: `2026-10-02-^SPX-15`
+(a condor mixing SPX/SPXW roots priced to an impossible +177%, with the
+long put above the short put) and `2026-09-30-^SPX-7` (a "short
+calendar" with expiries one day apart and a $0.50 credit, showing
+−1,122%). Worth considering mid-price valuation and a minimum gap
+between calendar expiries.
+
+**Open items:** reset terminal outcomes and re-run tracking plus the
+weekly compare (needs user OK). See the price-data concerns above. The older "What's next" list
 below still applies. In particular, `ACCOUNT_EQUITY` is still the
 `100000` placeholder. Everything referenced here is committed and pushed
 to `master` at https://github.com/coop1st/options-trading-pipeline
