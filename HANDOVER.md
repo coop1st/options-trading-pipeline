@@ -1,7 +1,77 @@
 # Handover — pick this up from here
 
-Last updated 2026-09-05 (evening) to hand this project off between
-Claude Code sessions. Everything referenced here is committed and pushed
+Last updated 2026-10-15 (evening). The "Latest session" section just
+below is new. Everything after it is the 2026-09-05 build handover and is
+still accurate, apart from the corrections noted in the new section.
+
+## Latest session — 2026-10-15 (health check + VIX hedge fix)
+
+**Why the session happened:** the user said the nightly email "didn't
+have any info in it". The emails from 10–15 Oct were the routine's
+**staleness alert** (subject "Options signals -- automation alert"), not
+a broken recommendations email. The cloud snapshot fetch was healthy the
+whole time, with open/mid/close committed through 14 Oct. The two
+**local** steps had last run on 9 Oct, so no newer signals file existed
+and the routine stopped at its staleness check, as it is designed to.
+
+**What was done:**
+1. Ran `python pipeline/merge_and_score.py`, which merged 9 new snapshot
+   files and published `signals/2026-10-14.csv` (11,073 contracts).
+2. Ran `python pipeline/screen_trades.py`, which wrote 8 candidates
+   dated 2026-10-14 to the ledger: STM/VFC/DECK calendars and
+   SPY/^SPX/TFC iron condors.
+3. Fired the nightly routine by hand (`trig_019GMK964MKrAunz5KZiZv8x`).
+   That produced a full "Options recommendations -- 2026-10-14" draft.
+4. **Fixed the VIX put bug** (commit `9d8ba3a`). The tail-hedge reminder
+   only ever looked for **puts**, including on ^VIX/VXX/UVXY, so the
+   "volatility spike" example could be a VIX put, which profits when
+   volatility *falls*. Chen/Sebastian ch.3 names OTM S&P **puts** and OTM
+   VIX **calls**. The fix had two parts:
+   - `pipeline/config.py`: new `TAIL_HEDGE_OPTION_TYPE` setting
+     (equity downside → put, volatility spike → call). `screen_trades.py`
+     `_cheapest_unit` now takes the option type. Calls on VXX/UVXY are
+     this project's own extension of the VIX-call rule and are flagged in
+     the code as such.
+   - Step 5 of the nightly routine's prompt was rewritten to check SPX/SPY
+     puts and VIX/VXX/UVXY calls separately, with one example per hedge
+     type (or a plain "none"). Before this, the prompt had the same
+     puts-only bug, and the prompt is the version that reaches the email.
+     Verified against the 14 Oct signals: the volatility example is now
+     `VIX261021C00055000` @ $0.01.
+
+**Decisions made by the user this session (don't re-raise):**
+- The cheapest qualifying hedge can be nearly worthless (for example an
+  SPX put expiring the next day, because there is no minimum
+  days-to-expiry). The user said **"this is fine"**. Leave it alone.
+- The two local steps stay manual, with no cloud migration and no Windows
+  scheduled task (decided 2026-09-17). Help by telling the user when the
+  PC needs to be on, and by running the scripts whenever the ledger is
+  behind the snapshots.
+
+**Daily operating rule for the user:** on each US trading-day evening,
+with the PC on, run `merge_and_score.py` then `screen_trades.py`
+*after* that day's close snapshot has landed in the repo and *before*
+the routine fires at 01:30 UTC (~02:30 Irish). GitHub crons on this
+account start hours late, so the close snapshot often lands around
+23:00 UTC or later. Check `git log` for "Options snapshot: close
+<date>" before running. If it's skipped, the next email is the
+staleness alert again.
+
+**Things to know:**
+- `merge_and_score.py` scores only the **most recent** snapshot date.
+  Missed days get no signals file of their own (12 and 13 Oct have none,
+  and neither do the earlier gaps). `track_outcomes.py` just skips
+  missing days, so nothing breaks, but those days' candidates are lost.
+- Earlier fix (2026-10-12, commit `d973459`): snapshot and true-range
+  files are now dated by the America/New_York market day, not the
+  runner's UTC date. Late-starting evening crons had been overwriting
+  the next day's file, which lost the closes for 5 and 8 Oct.
+- To check the routine's health, read the draft's content, not just the
+  run status. An alert-only run still reports success.
+
+**Open items:** none from this session. The older "What's next" list
+below still applies. In particular, `ACCOUNT_EQUITY` is still the
+`100000` placeholder. Everything referenced here is committed and pushed
 to `master` at https://github.com/coop1st/options-trading-pipeline
 (public repo). Read this file first, then the specs/plans it points to.
 
