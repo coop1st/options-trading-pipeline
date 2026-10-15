@@ -72,31 +72,135 @@ staleness alert again.
 **Outcome-tracking bug found the same evening (commit `bbc65cd`):**
 `evaluate_trade` replayed *every* signals file, including files from
 before the trade's entry date, so trades resolved on prices from weeks
-before they were recommended. 23 recorded outcomes are dated on or
+before they were recommended. 23 recorded outcomes were dated on or
 before entry. It now takes `entry_date` and skips snapshots up to and
-including it. Regression checks were added, and all 5 verify scripts
-pass. **Already-terminal ledger rows were NOT re-scored**: the tracker
-skips terminal trades, and clearing the outcome columns needs the user's
-OK (the auto-mode classifier blocked it). Until that's done,
-`strategy_performance_report.csv` and `tuning_suggestions_2026-10.md`
-are built on partly wrong outcomes. A read-only recompute with the fix
-gives 35 scoreable trades: iron condors 7/7 wins, short calendars
-20/27, long calendars 0/1, with 46 still open.
+including it; `generate_tuning_stats.py`'s sweep passes it too.
+Regression checks were added, and all 5 verify scripts pass.
 
-**Price-data concerns spotted (not fixed):** outcomes are valued at
-`last_price`, which can be stale. Two clear cases: `2026-10-02-^SPX-15`
-(a condor mixing SPX/SPXW roots priced to an impossible +177%, with the
-long put above the short put) and `2026-09-30-^SPX-7` (a "short
-calendar" with expiries one day apart and a $0.50 credit, showing
-−1,122%). Worth considering mid-price valuation and a minimum gap
-between calendar expiries.
+**Ledger reset and re-score (done, with the user's OK):** the tracker
+never re-checks terminal trades, so the outcome columns
+(`outcome_status`, `outcome_date`, `realized_pct`) were cleared for
+all 236 ledger rows. A check confirmed no other column changed. Then
+`track_outcomes.py` re-scored all 84 trades (commit `5cfc835`), and
+`compare_strategies.py` rebuilt `strategy_performance_report.csv`
+(`7cbe8f1`). The pre-reset values are in git history if ever needed.
+`tuning_suggestions_2026-10.md` was **not** affected because it had 0
+terminal trades. That review did note that `generate-tuning-stats.yml`'s
+monthly cron didn't fire on 1 Oct, which is still unchecked.
 
-**Open items:** reset terminal outcomes and re-run tracking plus the
-weekly compare (needs user OK). See the price-data concerns above. The older "What's next" list
-below still applies. In particular, `ACCOUNT_EQUITY` is still the
-`100000` placeholder. Everything referenced here is committed and pushed
-to `master` at https://github.com/coop1st/options-trading-pipeline
-(public repo). Read this file first, then the specs/plans it points to.
+**Corrected results as of 2026-10-15** (simulated; percentages are of
+each trade's own credit/debit): 84 trades, 35 terminal, 46 open, 3
+unresolved at expiration.
+
+| Family | Closed | Wins | Avg realized |
+|---|---|---|---|
+| Iron condor | 7 | 7 | +67% (about +49% without the bad-data +177% trade) |
+| Short calendar | 27 | 20 | −30% (about +12%, 20/26, without the −1,122% trade) |
+| Long calendar | 1 | 0 | −77% |
+
+By label: `rich_iv+directional_confirmation` won 15/17;
+`directional_confirmation` alone won 5/10. It's early, since most trades
+closed in the last two weeks.
+
+### Requirement from the user: use the bid/ask spread
+
+The user stated **"we need the bid ask spread"**. Pricing must be based
+on bid/ask, not `last_price`. This is the agreed next piece of work (not
+started):
+
+- **Why:** measured on the 2, 9 and 14 Oct signals, about 85% of
+  contracts have a real bid and ask, but `last_price` falls **outside**
+  the bid/ask in 31–39% of contracts, and about 20% hadn't traded that
+  day. The +177% condor (`2026-10-02-^SPX-15`) is the proof: on 14 Oct
+  the 7225 long put's `last_price` (32.30) was above the 7235 short put's
+  (29.91), which is impossible, while their quotes were sensible
+  (31.40/32.50 vs 32.00/33.30, mids about 31.95 vs 32.65).
+- **What to build:**
+  1. Value legs at the bid/ask **mid** (or at natural prices: sell at
+     bid, buy at ask) in `track_outcomes.py`, and at entry in
+     `screen_trades.py` (the ledger's `rec:` cells currently store
+     `last_price`).
+  2. Skip, or mark as unpriceable, any leg with `bid <= 0` or no ask
+     (the existing `zero_bid` flag), instead of using a stale last.
+  3. Consider the spread itself as a quality gate/cost: `wide_spread`
+     is already flagged in `signals.csv`, and `liquidity` is a scoring
+     criterion.
+  4. Separately, add a minimum gap between calendar expiries. The
+     −1,122% `2026-09-30-^SPX-7` had expiries one day apart (12/13 Oct)
+     with a $0.50 credit.
+  5. After the change, reset and re-score the ledger again, the same way
+     as above.
+- The current yfinance snapshots **already include bid and ask** (the
+  `bid`/`ask` columns in the snapshots and signals), so this needs no
+  new data source.
+- Follow `options-trading-spec-rigor`: say plainly that the mid-vs-natural
+  choice is this project's own operationalization, not a book rule.
+
+### Data-source research (2026-10-15): decision deferred
+
+The user asked whether to buy a data subscription. The recommendation:
+don't pay yet. Do the bid/ask change above first, measure what noise is
+left, then decide. The user's general rule is not to pay for data APIs
+(memory `prefer-scraping-over-paid-apis`); they raised paying themselves
+this time, but nothing has been bought.
+
+**Tradier (best fit if we switch), checked against Tradier's own docs:**
+- **Live data requires a real Tradier brokerage account.** Their Market
+  Data page: "Real-time data is available to all Tradier Brokerage
+  account holders for US-based stocks and options. If you are not a
+  Tradier Brokerage account holder, we are unable to provide you with
+  any real-time data solution."
+- Brokerage API: stocks, options and indices live (NDX, RUT and COMP are
+  calculated values); Greeks updated **hourly** (from ORATS). Sandbox:
+  15-minute delayed stocks and options, no indices, no Greeks.
+- **Ireland is on Tradier's permitted-countries list**, so the user (an
+  Ireland resident) can open an account. The UK is blocked; Ireland is
+  not.
+- Fields include bid/ask with sizes, exchanges and timestamps (`bid_date`,
+  `ask_date`), open interest, and `bid_iv`/`mid_iv`/`ask_iv`/`smv_vol`.
+  The chain lookup includes extra roots (SPXW, RUTW).
+- Limits: market data is 120 requests/minute in production. The chains
+  endpoint takes one symbol plus one expiration per call. The 14 Oct
+  close snapshot was 296 symbols / 990 symbol-expiration pairs, so about
+  1,300 calls, about 11 minutes per snapshot. That's fine on Actions.
+- Missing: **no history for expired options** (daily candles only for
+  live contracts; fine, since we keep our own snapshots); intraday
+  history is short (tick 5 days, 1-minute 10–20 days); no mutual funds.
+- Cost: plans are Lite (free), Pro ($10/month) and Pro Plus ($35/month);
+  those are trading-commission tiers. Nothing found says live API data
+  costs extra.
+- **Unconfirmed, ask Tradier support before signing up:** whether Lite
+  gets live API data; any minimum deposit or funding requirement; whether
+  production access tokens expire (this matters for unattended cloud
+  runs).
+- Switching means rewriting `cloud/fetch_options_snapshot.py` (about a
+  day) and storing the token as a GitHub Actions secret.
+
+**Other options, from third-party sources (verify before buying):**
+- Schwab Trader API: free with a Schwab account (price not published).
+  Needs an approved developer app, and its tokens expire regularly, which
+  is awkward for the cloud.
+- Interactive Brokers: OPRA live options data about $1.50/month for
+  non-professionals, waived at $20/month in commissions. It needs
+  IBKR's software running locally, so it's a poor fit for cloud jobs.
+- Massive (formerly Polygon): free end-of-day tier; Options Starter
+  $29/month (15-minute delayed, 2 years of history).
+- ThetaData: from about $40/month (sources disagree); more than needed
+  now.
+
+**Open items:**
+1. Bid/ask-based pricing plus a minimum calendar expiry gap (above), then
+   re-score.
+2. Check why `generate-tuning-stats.yml` didn't fire on 1 Oct.
+3. `ACCOUNT_EQUITY` is still the `100000` placeholder.
+4. The older "What's next" list below still applies.
+
+---
+
+*Below: the 2026-09-05 build handover.* Everything referenced is
+committed and pushed to `master` at
+https://github.com/coop1st/options-trading-pipeline (public repo). Read
+this file first, then the specs/plans it points to.
 
 **All five planned sub-projects are built and live.** Sub-project 5
 (monthly adaptive-tuning suggestions) shipped its full implementation
