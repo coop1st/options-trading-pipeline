@@ -126,6 +126,13 @@ TAIL_HEDGE_PRIORITY = {
     "equity downside": ["^SPX", "SPY"],
     "volatility spike": ["^VIX", "VXX", "UVXY"],
 }
+# Option type per hedge type: Chen/Sebastian ch.3 names OTM puts on the
+# S&P 500 and OTM calls on the VIX. Calls on VXX/UVXY (long-volatility
+# ETPs) are this project's own extension of the VIX-call rule.
+TAIL_HEDGE_OPTION_TYPE = {
+    "equity downside": "put",
+    "volatility spike": "call",
+}
 
 # Exit-rule simulation thresholds (docs/superpowers/specs/2026-09-05-strategy-comparison-design.md)
 CONDOR_EXIT_TARGET_PCT = 0.55

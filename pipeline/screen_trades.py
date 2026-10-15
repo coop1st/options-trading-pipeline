@@ -18,7 +18,7 @@ from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
     CALENDAR_MIN_FRONT_DAYS, CALENDAR_SHORT_DISCOUNT, CONDOR_DELTA_MAX, CONDOR_DELTA_MIN,
     CONDOR_MAX_DTE, CONDOR_MIN_DTE, EQUITY_MIN_DAILY_VOLUME, LABEL_THESIS_THRESHOLD,
-    MAX_LOSS_PCT_PER_TRADE, MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TAIL_HEDGE_PRIORITY,
+    MAX_LOSS_PCT_PER_TRADE, MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, TAIL_HEDGE_OPTION_TYPE, TAIL_HEDGE_PRIORITY,
     TOP_N_CANDIDATES, UNIT_MAX_DELTA, UNIT_MAX_PRICE, VERTICAL_DELTA_BAND, VERTICAL_MAX_DTE,
     VERTICAL_MIN_DTE, VERTICAL_SPREAD_WIDTHS,
 )
@@ -175,8 +175,8 @@ def write_ledger(ranked, snapshot_date, company_names):
     return len(rows)
 
 
-def _cheapest_unit(signals, symbol):
-    sym_df = signals[(signals["symbol"] == symbol) & (signals["type"] == "put") & (signals["delta"].abs() < UNIT_MAX_DELTA)]
+def _cheapest_unit(signals, symbol, option_type):
+    sym_df = signals[(signals["symbol"] == symbol) & (signals["type"] == option_type) & (signals["delta"].abs() < UNIT_MAX_DELTA)]
     sym_df = sym_df[sym_df["last_price"] <= UNIT_MAX_PRICE]
     if sym_df.empty:
         return None
@@ -195,7 +195,7 @@ def build_units_reminder(signals):
     examples = {}
     for hedge_type, priority_list in TAIL_HEDGE_PRIORITY.items():
         for symbol in priority_list:
-            unit = _cheapest_unit(signals, symbol)
+            unit = _cheapest_unit(signals, symbol, TAIL_HEDGE_OPTION_TYPE[hedge_type])
             if unit is not None:
                 examples[hedge_type] = unit
                 break
