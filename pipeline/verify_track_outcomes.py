@@ -142,6 +142,17 @@ def main():
     status, _, _ = evaluate_trade("vertical put credit spread", vert_legs, {}, date(2026, 4, 1))
     check("no data yet, expiration in the future -> OPEN", status == "OPEN")
 
+    # Snapshots dated before entry must be ignored: a pre-entry price that
+    # would hit max loss must not resolve a trade recommended later.
+    pre_entry_history = {"2026-05-01": vert_max_loss_prices, "2026-05-15": vert_target_prices}
+    status, out_date, _ = evaluate_trade("vertical put credit spread", vert_legs, pre_entry_history,
+                                         date(2026, 5, 15), entry_date="2026-05-10")
+    check("pre-entry snapshot ignored -> resolves on post-entry date only",
+          status == "HIT_TARGET" and out_date == "2026-05-15")
+    status, _, _ = evaluate_trade("vertical put credit spread", vert_legs, {"2026-05-10": vert_max_loss_prices},
+                                  date(2026, 5, 12), entry_date="2026-05-10")
+    check("entry-day snapshot itself ignored -> OPEN", status == "OPEN")
+
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
         sys.exit(1)

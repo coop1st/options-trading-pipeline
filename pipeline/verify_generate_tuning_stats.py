@@ -58,7 +58,7 @@ def main():
 
     # Exit-side sweep: a known synthetic long-call price path should
     # pick out whichever grid point performs best against it.
-    long_call_legs = {"trade-1": ("long call", [
+    long_call_legs = {"2026-02-15-TEST-1": ("long call", [
         {"leg_role": "long call", "entry_price": 3.00, "contract_symbol": "TEST260601C00100000",
          "expiration": "2026-06-01", "strike": 100.0},
     ])}
