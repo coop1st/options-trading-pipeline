@@ -1,15 +1,15 @@
 section,key,sample_size,win_rate_or_above_median,avg_realized_pct_or_below_median,note
-by_family,iron condor,2,1.0,0.6513,too few trades to be meaningful yet
-by_family,short calendar,12,0.583,-1.4602,
-by_family,long calendar,1,0.0,-0.28,too few trades to be meaningful yet
-by_label,term_structure_edge+directional_confirmation,2,1.0,0.6513,too few trades to be meaningful yet
-by_label,directional_confirmation,7,0.429,-2.6431,
-by_label,rich_iv+term_structure_edge+directional_confirmation,1,1.0,0.0964,too few trades to be meaningful yet
-by_label,rich_iv+directional_confirmation,5,0.6,0.1207,
-by_criterion,iv_richness,15,0.6,0.6,
-by_criterion,skew_quality,15,0.538,1.0,
-by_criterion,risk_reward,15,0.875,0.286,
-by_criterion,pop_proxy,15,0.6,,
-by_criterion,term_structure,15,0.625,0.571,
-by_criterion,liquidity,15,0.6,,
-by_criterion,directional_alignment,15,0.6,,
+by_family,iron condor,7,1.0,0.6682,
+by_family,short calendar,27,0.741,-0.3009,
+by_family,long calendar,1,0.0,-0.7727,too few trades to be meaningful yet
+by_label,term_structure_edge+directional_confirmation,6,1.0,0.6848,
+by_label,directional_confirmation,10,0.5,-1.1451,
+by_label,rich_iv+term_structure_edge+directional_confirmation,2,0.5,-0.3551,too few trades to be meaningful yet
+by_label,rich_iv+directional_confirmation,17,0.882,0.2255,
+by_criterion,iv_richness,35,0.833,0.706,
+by_criterion,skew_quality,35,0.742,1.0,
+by_criterion,risk_reward,35,0.833,0.706,
+by_criterion,pop_proxy,35,0.771,,
+by_criterion,term_structure,35,0.778,0.765,
+by_criterion,liquidity,35,0.794,0.0,
+by_criterion,directional_alignment,35,0.771,,
