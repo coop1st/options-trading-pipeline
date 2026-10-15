@@ -208,7 +208,7 @@ def _expire(legs, price_lookup, structure_type):
     return status, realized_pct
 
 
-def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=None):
+def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=None, entry_date=None):
     """Core re-scan-from-entry algorithm. legs: list of dicts with
     leg_role, entry_price, contract_symbol, expiration, strike.
     signals_by_date: {date_str: {contract_symbol: last_price}}. Returns
@@ -217,7 +217,10 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     kwargs) is forwarded to the evaluator -- meaningful only for
     "long call"/"long put" (see _evaluate_directional_long); passing it
     for any other strategy will raise, since those evaluators take no
-    such kwargs, by design (Tier 1 exit rules are never swept)."""
+    such kwargs, by design (Tier 1 exit rules are never swept).
+    entry_date (ISO str): only snapshots strictly after it are replayed --
+    the entry-day file holds the entry prices themselves, and earlier
+    files predate the recommendation entirely."""
     if strategy not in EVALUATORS:
         raise ValueError(f"No evaluator for strategy {strategy!r}")
 
@@ -234,6 +237,8 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     last_fully_priced_date = None
     last_price_lookup = None
     for snapshot_date in sorted(signals_by_date):
+        if entry_date is not None and snapshot_date <= entry_date:
+            continue
         dte = (date.fromisoformat(nearest_expiration) - date.fromisoformat(snapshot_date)).days
         if dte < 0:
             continue
@@ -356,11 +361,12 @@ def run_track_outcomes():
             continue
 
         try:
-            _entry_date, legs = _entry_info_for_trade(trade_rows)
+            entry_date, legs = _entry_info_for_trade(trade_rows)
             if not legs:
                 print(f"{trade_id}: no recoverable entry legs -- skipping")
                 continue
-            status, outcome_date, realized_pct = evaluate_trade(strategy, legs, signals_by_date, today)
+            status, outcome_date, realized_pct = evaluate_trade(strategy, legs, signals_by_date, today,
+                                                             entry_date=entry_date)
         except Exception as exc:
             print(f"{trade_id}: SKIPPED ({exc})")
             continue

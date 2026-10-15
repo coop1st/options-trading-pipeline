@@ -108,10 +108,11 @@ def sweep_directional_thresholds(directional_trades, stop_grid, target_grid, sig
     for stop_pct in stop_grid:
         for target_pct in target_grid:
             outcomes = []
-            for strategy, legs in directional_trades.values():
+            for trade_id, (strategy, legs) in directional_trades.items():
                 status, _date, realized_pct = evaluate_trade(
                     strategy, legs, signals_by_date, today,
                     evaluator_overrides={"stop_pct": stop_pct, "target_pct": target_pct},
+                    entry_date=trade_id[:10],
                 )
                 if status in SCOREABLE_STATUSES and realized_pct is not None:
                     outcomes.append(realized_pct)
