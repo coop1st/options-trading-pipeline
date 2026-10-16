@@ -68,5 +68,14 @@ jobs:
             echo "No changes to commit"
           else
             git commit -m "Options snapshot: ${{ steps.session.outputs.session }} $(TZ=America/New_York date +%Y-%m-%d)"
-            git push
+            # Another workflow can push between our checkout and this push
+            # (lost the 2026-10-15 open snapshot), so rebase and retry.
+            for attempt in 1 2 3 4 5; do
+              git push && exit 0
+              echo "Push rejected (attempt $attempt); rebasing onto origin and retrying"
+              sleep $((attempt * 5))
+              git pull --rebase origin "${GITHUB_REF_NAME}"
+            done
+            echo "::error::Push failed after 5 attempts"
+            exit 1
           fi
