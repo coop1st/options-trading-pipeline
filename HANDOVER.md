@@ -1,35 +1,65 @@
 # Handover — pick this up from here
 
 Last updated 2026-10-17. The 2026-10-17 and 2026-10-15 sections just
-below are the newest. Everything after it is the 2026-09-05 build handover and is
-still accurate, apart from the corrections noted in the new section.
+below are the newest (read 2026-10-17 first). Everything after them is the 2026-09-05
+build handover and is still accurate, apart from the corrections noted in those sections.
 
-## Session 2026-10-17 (staleness alert again + four builder fixes)
+## Session 2026-10-17: staleness alert again, plus four builder fixes (READ FIRST)
 
-**Alert:** the "automation alert" came back because the local scripts had not run since 14 Oct.
-Both scripts were run for 16 Oct (15 Oct has no signals file, so its candidates are lost).
+### 1. The alert
+The 01:33 "Options signals -- automation alert" (17 Oct) had the same cause as on 15 Oct: the two local
+scripts had not run since 14 Oct, while the cloud fetch was healthy. Catch-up:
+- `merge_and_score.py` wrote `signals/2026-10-16.csv` (11,962 rows; commit `e7f46dc`).
+- `screen_trades.py` ran, and the routine `trig_019GMK964MKrAunz5KZiZv8x` was fired by hand.
+- 15 Oct has no signals file, so its candidates are lost (the scorer only scores the newest date).
 
-**Four bugs fixed (commit `2122866`, user-approved; tests in `pipeline/verify_strategy_rules.py`):**
-1. **Iron condor max loss used the narrower wing** (`min` of the two widths). The true max loss is the
-   wider wing minus the credit, so asymmetric condors were oversized. Worst case: 17 Sep ^SPX-1 had a
-   2,600-pt put wing and was sized at 5 contracts on a stated $364 risk.
-2. **SPX/SPXW root mixing.** The builders grouped only by symbol + expiration, so AM-settled SPX and
-   PM-settled SPXW legs ended up in one trade (8 ledger trades). `_by_series()` now groups by symbol +
-   option root in all four multi-leg builders. The vertical volume gate still uses the whole symbol.
-3. **Impossible credits from stale `last_price`.** For example, on 16 Oct a 10-wide put spread "collected"
-   $10.05 because the long leg's last trade was $45.07 against a $51.40/$54.70 quote. Spreads and condor
-   sides with credit >= width are now rejected. This is a stop-gap until bid/ask pricing.
-4. **0-contract trades** (24 of 104, from one-contract risk above 2% of equity) no longer take top-20 slots;
-   `score_and_rank` skips them.
+### 2. Four bugs found in that draft, all fixed with the user's approval
+The fix is commit `2122866`; there are no other code changes.
 
-The 16 Oct ledger rows were regenerated (`6d9e67d`), and the old draft was deleted and the routine
-re-fired. Pre-fix ledger rows (before 16 Oct) are left as they were.
+| # | Bug | Evidence | Fix | File |
+|---|---|---|---|---|
+| 1 | Iron condor `width = min(call wing, put wing)`, so max loss came from the **narrower** wing. The true max loss is the wider wing minus the credit, because only one side can finish in the money. | 26 ledger condors have uneven wings. 17 Sep ^SPX-1 had a 2,600-pt put wing (gaps in the strike chain) and was sized at 5 contracts on a stated $364 risk; the real risk is about $255k per contract. | `width = max(call_width, put_width)` | `pipeline/strategy_rules.py` `build_iron_condors` |
+| 2 | Builders grouped by symbol + expiration only. ^SPX lists AM-settled **SPX** and PM-settled **SPXW** on the same third-Friday dates, so one trade could mix them. | 8 ledger trades (condors and short calendars); 16 Oct #1 had SPXW shorts and SPX longs. | New `_by_series(signals)` groups by symbol + option root (regex on `contract_symbol`). It is used by the vertical, condor, calendar and double-diagonal builders. The vertical's volume gate still sums the whole symbol. Directional longs are single-leg and unchanged. ^VIX/VIXW was already excluded from screening. | `strategy_rules.py` |
+| 3 | No check for impossible credits. A stale `last_price` let a spread "collect" at least its width, so max loss went negative and the size came out as 0, yet it still ranked #1. | 16 Oct #1: the 6990 put's last trade was $45.07 against $51.40/$54.70 bid/ask (volume 12), so the 7000/6990 put spread showed a $10.05 credit on 10 wide. At bid/ask it is a $0.70 debit. | Verticals reject `credit >= width`. Condors reject either side whose own credit is at least its own width. **Stop-gap**: bid/ask pricing is the real fix. | `strategy_rules.py` |
+| 4 | Trades sized to 0 contracts still took top-20 slots. | 24 of 104 ledger trades: mostly ^SPX short calendars and condors whose one-contract max loss is above 2% of `ACCOUNT_EQUITY` ($2,000). The sizing itself was correct. | `score_and_rank` skips any candidate where `suggested_contracts(c) <= 0`, before the top-N slice. | `pipeline/screen_trades.py` |
 
-**Deferred (the wing cap by the user's choice; the other two noted only):**
-- no cap on condor wing distance (a strike gap can still pick a far wing; fix 1 now sizes it out);
-- the double diagonal's max loss = the net debit, which understates risk with offset strikes;
-- the fixed 10-strike-point wing target regardless of underlying price.
-Revisit these with the bid/ask pricing task.
+**Tests:**
+- New `pipeline/verify_strategy_rules.py` has 13 checks. Run it with `python pipeline/verify_strategy_rules.py`; it prints `ALL OK`.
+- All 9 fix checks were watched failing before the change.
+- The existing `verify_scoring`, `verify_track_outcomes`, `verify_greeks`, `verify_compare_strategies` and `verify_generate_tuning_stats` all still print `ALL_OK`.
+
+### 3. What changed in the published output
+**The 16 Oct ledger was regenerated** (commit `6d9e67d`). A re-run replaces that date's rows by design.
+- Gone:
+  - the impossible ^SPX condor (old #1);
+  - the ^SPX condor with 25/100 wings (old #14), whose true risk is above the 2% limit.
+- UVXY condor: 28 → 3 contracts (its 8-pt wing now sets the risk, not the 3-pt one).
+- New in the top 20: NRG short calendar (#19) and ABR long calendar (#20).
+- All 20 trades are sized at 2 contracts or more, and none mixes roots.
+
+**The email:** the old "Options recommendations -- 2026-10-16" draft was deleted and the routine re-fired. The corrected
+draft was created at 10:43Z on 17 Oct.
+
+**Ledger rows dated before 16 Oct were NOT rewritten.** They keep their old sizes and mixed roots. Before any
+analysis of past outcomes or position sizes, remember that pre-16-Oct condors with uneven wings were
+oversized and that 8 trades mixed SPX and SPXW.
+
+### 4. Known limits still open (not fixed; revisit with the bid/ask task)
+- **Wing-distance cap: the user chose "leave for now".** A gap in the strike chain can still pick a very far long wing.
+  Fix 1 now gives such a trade its true (huge) risk, so it sizes to 0 and fix 4 drops it.
+- **The calendar and double-diagonal max loss is `abs(net debit)`.** That's right for a long calendar but understates risk for a
+  double diagonal (offset strikes) and for a short calendar (e.g. 16 Oct NRG #19). These are noted, not raised with
+  the user as a task.
+- The condor/diagonal long-wing target is a fixed 10 strike points, whatever the underlying's price.
+- Everything still prices on `last_price`. **Bid/ask pricing remains the agreed next task** (user requirement), and
+  removes the cause of bug 3.
+
+### 5. Next
+- **Mon 19 Oct evening, with the PC on:** after the "Options snapshot: close 2026-10-19" commit lands (often after
+  23:00 Irish time), run `merge_and_score.py` then `screen_trades.py`. The routine fires Tue 20 Oct at about 01:34 UTC
+  (`next_run_at` 2026-10-20T01:34Z). If the scripts are skipped, the newest file is still Fri 16 Oct, 3 days older than
+  Mon 19 Oct, so the email will be the staleness alert again.
+- Then start the bid/ask pricing task, and fold in the open limits from section 4.
 
 ## Latest session — 2026-10-15 (health check + VIX hedge fix)
 
