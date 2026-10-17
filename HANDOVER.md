@@ -1,8 +1,35 @@
 # Handover — pick this up from here
 
-Last updated 2026-10-15 (evening). The "Latest session" section just
-below is new. Everything after it is the 2026-09-05 build handover and is
+Last updated 2026-10-17. The 2026-10-17 and 2026-10-15 sections just
+below are the newest. Everything after it is the 2026-09-05 build handover and is
 still accurate, apart from the corrections noted in the new section.
+
+## Session 2026-10-17 (staleness alert again + four builder fixes)
+
+**Alert:** the "automation alert" came back because the local scripts had not run since 14 Oct.
+Both scripts were run for 16 Oct (15 Oct has no signals file, so its candidates are lost).
+
+**Four bugs fixed (commit `2122866`, user-approved; tests in `pipeline/verify_strategy_rules.py`):**
+1. **Iron condor max loss used the narrower wing** (`min` of the two widths). The true max loss is the
+   wider wing minus the credit, so asymmetric condors were oversized. Worst case: 17 Sep ^SPX-1 had a
+   2,600-pt put wing and was sized at 5 contracts on a stated $364 risk.
+2. **SPX/SPXW root mixing.** The builders grouped only by symbol + expiration, so AM-settled SPX and
+   PM-settled SPXW legs ended up in one trade (8 ledger trades). `_by_series()` now groups by symbol +
+   option root in all four multi-leg builders. The vertical volume gate still uses the whole symbol.
+3. **Impossible credits from stale `last_price`.** For example, on 16 Oct a 10-wide put spread "collected"
+   $10.05 because the long leg's last trade was $45.07 against a $51.40/$54.70 quote. Spreads and condor
+   sides with credit >= width are now rejected. This is a stop-gap until bid/ask pricing.
+4. **0-contract trades** (24 of 104, from one-contract risk above 2% of equity) no longer take top-20 slots;
+   `score_and_rank` skips them.
+
+The 16 Oct ledger rows were regenerated (`6d9e67d`), and the old draft was deleted and the routine
+re-fired. Pre-fix ledger rows (before 16 Oct) are left as they were.
+
+**Deferred, noted by the user's choice:**
+- no cap on condor wing distance (a strike gap can still pick a far wing; fix 1 now sizes it out);
+- the double diagonal's max loss = the net debit, which understates risk with offset strikes;
+- the fixed 10-strike-point wing target regardless of underlying price.
+Revisit these with the bid/ask pricing task.
 
 ## Latest session — 2026-10-15 (health check + VIX hedge fix)
 
