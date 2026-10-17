@@ -13,6 +13,17 @@ def _dte(expiration, snapshot_date):
     return (date.fromisoformat(expiration) - date.fromisoformat(snapshot_date)).days
 
 
+def _by_series(signals):
+    """Yields (symbol, df) per option series: symbol plus option root, so
+    no candidate mixes roots. ^SPX lists AM-settled SPX and PM-settled
+    SPXW contracts on the same expiration dates; grouping by symbol and
+    expiration alone let one trade pair an SPXW short with an SPX long,
+    i.e. legs that settle at different times (fixed 2026-10-17)."""
+    roots = signals["contract_symbol"].str.extract(r"^([A-Z]+)\d{6}[CP]", expand=False)
+    for (symbol, _root), df in signals.assign(option_root=roots).groupby(["symbol", "option_root"]):
+        yield symbol, df
+
+
 def _underlying_daily_volume(symbol_signals):
     """Proxy for directional-strategies.md SS5's underlying-level
     liquidity screen: sums today's per-contract volume across every
@@ -66,11 +77,11 @@ def build_vertical_credit_spreads(signals, snapshot_date, bias, min_dte, max_dte
     candidates = []
     target_mid_delta = sum(delta_band) / 2
 
-    for symbol, sym_df in signals.groupby("symbol"):
+    for symbol, sym_df in _by_series(signals):
         tilt = bias.get(symbol)
         if tilt is None:
             continue  # no directional view -- this family isn't built for this symbol
-        if _underlying_daily_volume(sym_df) <= min_daily_volume:
+        if _underlying_daily_volume(signals[signals["symbol"] == symbol]) <= min_daily_volume:
             continue
 
         opt_type = "put" if tilt == "bullish" else "call"
@@ -98,7 +109,9 @@ def build_vertical_credit_spreads(signals, snapshot_date, bias, min_dte, max_dte
 
                 credit = short_row["last_price"] - long_row["last_price"]
                 actual_width = abs(short_row["strike"] - long_row["strike"])
-                if credit <= 0 or actual_width <= 0:
+                # credit >= width can only come from stale last_price prints
+                # (no real spread sells for more than it can pay out) -- reject
+                if credit <= 0 or actual_width <= 0 or credit >= actual_width:
                     continue
 
                 candidates.append({
@@ -132,7 +145,7 @@ def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_
     candidates = []
     target_mid_delta = (delta_min + delta_max) / 2
 
-    for symbol, sym_df in signals.groupby("symbol"):
+    for symbol, sym_df in _by_series(signals):
         atr = get_atr(symbol)
         for expiration, exp_df in sym_df.groupby("expiration"):
             dte = _dte(expiration, snapshot_date)
@@ -160,12 +173,20 @@ def build_iron_condors(signals, snapshot_date, get_atr, min_dte, max_dte, delta_
             if long_call is None or long_put is None:
                 continue
 
-            credit = (
-                short_call["last_price"] - long_call["last_price"]
-                + short_put["last_price"] - long_put["last_price"]
-            )
-            width = min(abs(long_call["strike"] - short_call["strike"]), abs(short_put["strike"] - long_put["strike"]))
+            call_credit = short_call["last_price"] - long_call["last_price"]
+            put_credit = short_put["last_price"] - long_put["last_price"]
+            call_width = abs(long_call["strike"] - short_call["strike"])
+            put_width = abs(short_put["strike"] - long_put["strike"])
+            credit = call_credit + put_credit
+            # Max loss is set by the WIDER wing (only one side can finish in
+            # the money); min() here understated risk on asymmetric condors
+            # and oversized them (fixed 2026-10-17).
+            width = max(call_width, put_width)
             if credit <= 0 or width <= 0:
+                continue
+            # A side collecting at least its own width is impossible in a
+            # real market -- only stale last_price prints produce it
+            if call_credit >= call_width or put_credit >= put_width:
                 continue
 
             candidates.append({
@@ -234,7 +255,7 @@ def build_calendars(signals, snapshot_date, get_term_structure_history, min_fron
     criterion the same way it does for iron condors -- see that
     function's docstring for the bug this fixes."""
     candidates = []
-    for symbol, sym_df in signals.groupby("symbol"):
+    for symbol, sym_df in _by_series(signals):
         for opt_type, type_df in sym_df.groupby("type"):
             expirations = sorted(type_df["expiration"].unique())
             for i, front_exp in enumerate(expirations):
@@ -301,7 +322,7 @@ def build_double_diagonals(signals, snapshot_date, get_term_structure_history, m
     candidates = []
     target_mid_delta = (delta_min + delta_max) / 2
 
-    for symbol, sym_df in signals.groupby("symbol"):
+    for symbol, sym_df in _by_series(signals):
         expirations = sorted(sym_df["expiration"].unique())
         for i, front_exp in enumerate(expirations):
             if _dte(front_exp, snapshot_date) < min_front_days:

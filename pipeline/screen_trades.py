@@ -105,6 +105,11 @@ def build_all_candidates(signals, snapshot_date, bias):
 def score_and_rank(candidates):
     scored = []
     for c in candidates:
+        # A trade whose one-contract max loss already exceeds the per-trade
+        # risk limit sizes to 0 contracts -- not actionable, so it must not
+        # take a top-N slot (user, 2026-10-17)
+        if suggested_contracts(c) <= 0:
+            continue
         score, breakdown = score_candidate(
             c, MIN_VOLUME, MIN_OPEN_INTEREST, CALENDAR_LONG_PREMIUM_MIN, CALENDAR_LONG_PREMIUM_MAX,
             other_expirations_atm_iv=c.get("other_expirations_atm_iv"),
