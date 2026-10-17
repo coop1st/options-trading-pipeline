@@ -1,8 +1,52 @@
 # Handover — pick this up from here
 
-Last updated 2026-10-17. The 2026-10-17 and 2026-10-15 sections just
+Last updated 2026-10-17 (afternoon). The 2026-10-17 and 2026-10-15 sections just
 below are the newest (read 2026-10-17 first). Everything after them is the 2026-09-05
 build handover and is still accurate, apart from the corrections noted in those sections.
+
+## Session 2026-10-17 (afternoon): daily status reminder routine (NEW)
+
+**Why:** the user often misses the window for having the PC on, so the 02:30 email falls back to the staleness alert.
+They asked for a daily email with a quick status report on the project, plus automatic deletion of these status
+drafts once they are more than 5 days old.
+
+**What was built** (cloud routine only, with no repo code changes):
+- **Routine:** `trig_01VBvPrZuubm8yYaXhywrzgz` "Options status check (daily)".
+  - Cron `0 17 * * 1-5` UTC: 18:00 Dublin until 25 Oct, then 17:00 Dublin.
+  - Model Sonnet 5.5, repo coop1st/options-trading-pipeline.
+  - Tools: Bash, Read, Glob, Grep, plus Gmail list_drafts, create_draft and delete_draft.
+  - Read-only on the repo. It never sends.
+  - Link: https://claude.ai/code/routines/trig_01VBvPrZuubm8yYaXhywrzgz
+- **Draft:** subject "Options status -- YYYY-MM-DD", to kcoopercscs@gmail.com. Contents:
+  - the verdict line: "ACTION TONIGHT ...", prefixed with "BEHIND by N trading day(s)" if any trading day has a
+    `_close` snapshot newer than the newest signals file;
+  - the signals and ledger dates (it flags a ledger that lags the signals, meaning `screen_trades.py` was not run);
+  - today's snapshots;
+  - the close landing window, taken from `git log` of the last 5 `*_close.csv` files;
+  - whether the last options draft was real or an alert;
+  - the two commands.
+- **Cleanup:** runs before drafting. It deletes only drafts whose subject starts with "Options status --" and whose
+  date is more than 5 days ago, and never any other draft.
+- **Prompt backup:** `routine_backups/options_status_email_prompt_2026-10-17.txt`. This folder is untracked; it is
+  local only.
+
+**Test run** (fired by hand on Sat 17 Oct at 13:46 UTC): correct output.
+- It saw that it was Saturday, so there was nothing to do; it was caught up through 16 Oct; 15 Oct was lost.
+- It found that the 01:33 draft was an alert and the 10:43 draft was real (20 candidates).
+- It deleted 0 drafts. The first real deletion is expected around Fri 23 Oct, so check then that only old status
+  drafts went.
+
+**Timing correction:**
+- The close snapshot measured from git landed between 23:25 and 00:40 Dublin, with one outlier at 02:50.
+- That is not the "~21:15" the master schedule used to say. A run at 21:15 would have scored the mid snapshot.
+- The master schedule rows (CSV and Google Sheet) were corrected on 17 Oct and the new routine was added on Mon-Fri at
+  18:00. The Sheet was verified with 0 mismatches.
+
+**To check next week:**
+1. Mon 19 Oct about 17:00 UTC: the first scheduled run should say "ACTION TONIGHT" with no backlog.
+2. Around Fri 23 Oct: the cleanup deletes the Sat 17 Oct test draft and nothing else.
+3. After the clocks change on 25 Oct, the draft arrives at 17:00 Dublin. Move the cron to `0 18 * * 1-5` only if the
+   user wants 18:00 kept.
 
 ## Session 2026-10-17: staleness alert again, plus four builder fixes (READ FIRST)
 
