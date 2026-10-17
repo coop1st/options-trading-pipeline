@@ -25,7 +25,7 @@ Both scripts were run for 16 Oct (15 Oct has no signals file, so its candidates 
 The 16 Oct ledger rows were regenerated (`6d9e67d`), and the old draft was deleted and the routine
 re-fired. Pre-fix ledger rows (before 16 Oct) are left as they were.
 
-**Deferred, noted by the user's choice:**
+**Deferred (the wing cap by the user's choice; the other two noted only):**
 - no cap on condor wing distance (a strike gap can still pick a far wing; fix 1 now sizes it out);
 - the double diagonal's max loss = the net debit, which understates risk with offset strikes;
 - the fixed 10-strike-point wing target regardless of underlying price.
