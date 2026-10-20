@@ -181,8 +181,8 @@ BABA,,2026-10-02-BABA-20,short calendar,long call,,,,,,BABA261016C00105000/3.35,
 ^SPX,,2026-10-09-^SPX-5,short calendar,long put,,,,,,,SPXW261020P07830000/54.19,,,79.4,100.0,50.0,100.0,50.0,55.78,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-14,0.2852
 ^SPX,,2026-10-09-^SPX-6,short calendar,short put,,,,,,,SPXW261130P07830000/171.04,,,79.4,100.0,50.0,100.0,50.0,55.78,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-14,0.4162
 ^SPX,,2026-10-09-^SPX-6,short calendar,long put,,,,,,,SPXW261020P07830000/54.19,,,79.4,100.0,50.0,100.0,50.0,55.78,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-14,0.4162
-^SPX,,2026-10-09-^SPX-7,short calendar,short put,,,,,,,SPXW261104P07825000/91.51,,,77.8,100.0,50.0,86.04,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,OPEN,,
-^SPX,,2026-10-09-^SPX-7,short calendar,long put,,,,,,,SPXW261019P07825000/49.85,,,77.8,100.0,50.0,86.04,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,OPEN,,
+^SPX,,2026-10-09-^SPX-7,short calendar,short put,,,,,,,SPXW261104P07825000/91.51,,,77.8,100.0,50.0,86.04,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,UNRESOLVED_AT_EXPIRATION,2026-10-20,
+^SPX,,2026-10-09-^SPX-7,short calendar,long put,,,,,,,SPXW261019P07825000/49.85,,,77.8,100.0,50.0,86.04,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,UNRESOLVED_AT_EXPIRATION,2026-10-20,
 ^SPX,,2026-10-09-^SPX-8,short calendar,short call,,,,,,,SPXW261106C07825000/107.0,,,77.03,100.0,50.0,80.66,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-14,0.3055
 ^SPX,,2026-10-09-^SPX-8,short calendar,long call,,,,,,,SPXW261019C07825000/41.05,,,77.03,100.0,50.0,80.66,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-14,0.3055
 ^SPX,,2026-10-09-^SPX-9,short calendar,short put,,,,,,,SPXW261106P07825000/97.73,,,77.03,100.0,50.0,80.66,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,HIT_TARGET,2026-10-16,0.9217
@@ -193,8 +193,8 @@ VXX,,2026-10-09-VXX-11,short calendar,short call,,,,,,,VXX261120C00017000/1.31,,
 VXX,,2026-10-09-VXX-11,short calendar,long call,,,,,,,VXX261023C00017000/0.51,,,75.52,100.0,50.0,71.24,50.0,57.42,100.0,100.0,rich_iv+directional_confirmation,25,HIT_MAX_LOSS,2026-10-16,-0.325
 VXX,,2026-10-09-VXX-12,short calendar,short put,,,,,,,VXX261120P00017000/1.26,,,75.52,100.0,50.0,71.24,50.0,57.42,100.0,100.0,rich_iv+directional_confirmation,25,HIT_MAX_LOSS,2026-10-16,-0.1169
 VXX,,2026-10-09-VXX-12,short calendar,long put,,,,,,,VXX261023P00017000/0.49,,,75.52,100.0,50.0,71.24,50.0,57.42,100.0,100.0,rich_iv+directional_confirmation,25,HIT_MAX_LOSS,2026-10-16,-0.1169
-^SPX,,2026-10-09-^SPX-13,short calendar,short put,,,,,,,SPXW261103P07825000/86.09,,,74.34,100.0,50.0,61.83,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,OPEN,,
-^SPX,,2026-10-09-^SPX-13,short calendar,long put,,,,,,,SPXW261019P07825000/49.85,,,74.34,100.0,50.0,61.83,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,OPEN,,
+^SPX,,2026-10-09-^SPX-13,short calendar,short put,,,,,,,SPXW261103P07825000/86.09,,,74.34,100.0,50.0,61.83,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,UNRESOLVED_AT_EXPIRATION,2026-10-20,
+^SPX,,2026-10-09-^SPX-13,short calendar,long put,,,,,,,SPXW261019P07825000/49.85,,,74.34,100.0,50.0,61.83,50.0,58.56,100.0,100.0,rich_iv+directional_confirmation,0,UNRESOLVED_AT_EXPIRATION,2026-10-20,
 PYPL,,2026-10-09-PYPL-14,short calendar,short call,,,,,,,PYPL261030C00056000/2.38,,,73.82,66.65,50.0,74.76,50.0,75.32,100.0,100.0,rich_iv+term_structure_edge+directional_confirmation,15,HIT_TARGET,2026-10-14,0.0625
 PYPL,,2026-10-09-PYPL-14,short calendar,long call,,,,,,,PYPL261023C00056000/1.1,,,73.82,66.65,50.0,74.76,50.0,75.32,100.0,100.0,rich_iv+term_structure_edge+directional_confirmation,15,HIT_TARGET,2026-10-14,0.0625
 PYPL,,2026-10-09-PYPL-15,short calendar,short put,,,,,,,PYPL261030P00054000/1.85,,,73.82,66.65,50.0,74.76,50.0,75.32,100.0,100.0,rich_iv+term_structure_edge+directional_confirmation,16,HIT_TARGET,2026-10-16,0.1513
