@@ -1,87 +1,101 @@
 {
-  "generated_date": "2026-10-02",
-  "total_terminal_trades": 7,
+  "generated_date": "2026-11-02",
+  "total_terminal_trades": 93,
   "min_trades_for_suggestion": 10,
   "criterion_correlations": {
     "iv_richness": {
-      "n": 7,
-      "correlation": 0.0598
+      "n": 93,
+      "correlation": -0.0568
     },
     "skew_quality": {
-      "n": 7,
-      "correlation": -0.8018
+      "n": 93,
+      "correlation": -0.1122
     },
     "risk_reward": {
-      "n": 7,
-      "correlation": 0.691
+      "n": 93,
+      "correlation": -0.1207
     },
     "pop_proxy": {
-      "n": 7,
-      "correlation": 0.8018
+      "n": 93,
+      "correlation": 0.4753
     },
     "term_structure": {
-      "n": 7,
-      "correlation": 0.982
+      "n": 93,
+      "correlation": 0.1384
     },
     "liquidity": {
-      "n": 7,
-      "correlation": null
+      "n": 93,
+      "correlation": 0.2504
     },
     "directional_alignment": {
-      "n": 7,
+      "n": 93,
       "correlation": null
     }
   },
   "weight_sensitivity": {
     "iv_richness": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.691,
-      "halved_weight_correlation": 0.982
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": -0.0402,
+      "halved_weight_correlation": 0.0683
     },
     "skew_quality": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.691,
-      "halved_weight_correlation": 0.691
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": -0.012,
+      "halved_weight_correlation": -0.0133
     },
     "risk_reward": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.8729,
-      "halved_weight_correlation": 0.691
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": -0.0892,
+      "halved_weight_correlation": 0.1204
     },
     "pop_proxy": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.691,
-      "halved_weight_correlation": 0.6547
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": 0.2916,
+      "halved_weight_correlation": -0.0854
     },
     "term_structure": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.982,
-      "halved_weight_correlation": 0.691
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": 0.0396,
+      "halved_weight_correlation": -0.0288
     },
     "liquidity": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.691,
-      "halved_weight_correlation": 0.691
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": 0.0447,
+      "halved_weight_correlation": -0.0276
     },
     "directional_alignment": {
-      "baseline_correlation": 0.691,
-      "doubled_weight_correlation": 0.691,
-      "halved_weight_correlation": 0.691
+      "baseline_correlation": -0.0157,
+      "doubled_weight_correlation": -0.0157,
+      "halved_weight_correlation": -0.0157
     }
   },
   "label_performance": [
     {
       "selection_label": "term_structure_edge+directional_confirmation",
-      "sample_size": 2,
-      "win_rate": 1.0,
-      "avg_realized_pct": 0.6513,
-      "note": "too few trades to be meaningful yet"
+      "sample_size": 19,
+      "win_rate": 0.842,
+      "avg_realized_pct": 0.411,
+      "note": ""
     },
     {
       "selection_label": "directional_confirmation",
-      "sample_size": 5,
-      "win_rate": 0.4,
-      "avg_realized_pct": -3.7238,
+      "sample_size": 12,
+      "win_rate": 0.583,
+      "avg_realized_pct": -0.8835,
+      "note": ""
+    },
+    {
+      "selection_label": "rich_iv+directional_confirmation",
+      "sample_size": 39,
+      "win_rate": 0.744,
+      "avg_realized_pct": 0.2455,
+      "note": ""
+    },
+    {
+      "selection_label": "rich_iv+term_structure_edge+directional_confirmation",
+      "sample_size": 23,
+      "win_rate": 0.478,
+      "avg_realized_pct": 0.384,
       "note": ""
     }
   ],
