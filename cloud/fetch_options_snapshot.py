@@ -6,8 +6,12 @@ matching Projects/Stocks/cloud/*.py's convention): must run correctly in
 an ephemeral GitHub Actions runner that only has this repo cloned, not
 pipeline/config.py's Windows-specific SSL setup or the local database.
 
-Run from the repo root: `python cloud/fetch_options_snapshot.py <session>`
+Run from the repo root: `python cloud/fetch_options_snapshot.py <session> [--force]`
   where <session> is one of: open, mid, close
+
+Skips (exit 0, no file written) on weekends, NYSE full-day holidays, and
+when today's file for that session already exists and is non-empty.
+`--force` or OPTIONS_SNAPSHOT_FORCE=1 overrides both skips (manual runs).
 """
 import os
 import sys
@@ -30,6 +34,33 @@ MAX_DTE_DAYS = 75
 # was filed under the next day and then overwritten by that day's real close
 # (lost the 2026-10-05 and 2026-10-08 closes).
 MARKET_TZ = ZoneInfo("America/New_York")
+
+# NYSE full-day closures. Without this, a holiday's crons save a stale chain
+# that later gets scored as a trading day. Half-days (e.g. the day after
+# Thanksgiving, Christmas Eve) are trading days and are deliberately NOT
+# listed. THIS LIST NEEDS EXTENDING EACH YEAR (add 2028 before 1 Jan 2028).
+NYSE_FULL_DAY_HOLIDAYS = {
+    # 2026
+    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16), date(2026, 4, 3),
+    date(2026, 5, 25), date(2026, 6, 19), date(2026, 7, 3), date(2026, 9, 7),
+    date(2026, 11, 26), date(2026, 12, 25),
+    # 2027
+    date(2027, 1, 1), date(2027, 1, 18), date(2027, 2, 15), date(2027, 3, 26),
+    date(2027, 5, 31), date(2027, 6, 18), date(2027, 7, 5), date(2027, 9, 6),
+    date(2027, 11, 25), date(2027, 12, 24),
+}
+OUT_DIR = "data/github_sync/options_snapshots"
+
+
+def non_trading_reason(day):
+    """Return why `day` is not an NYSE trading day, or None if it is."""
+    if day.weekday() >= 5:
+        return "weekend"
+    if day in NYSE_FULL_DAY_HOLIDAYS:
+        return "NYSE full-day holiday"
+    if day.year > max(d.year for d in NYSE_FULL_DAY_HOLIDAYS):
+        print(f"WARNING: NYSE_FULL_DAY_HOLIDAYS has no entries for {day.year}; extend it")
+    return None
 
 # Tail-hedge instruments for the portfolio-insurance reminder (New Data
 # Prerequisites item 4) -- priority-ordered per hedge type in
@@ -100,12 +131,24 @@ def _rows_for_symbol(symbol, today):
 
 
 def main():
-    session = sys.argv[1] if len(sys.argv) > 1 else None
+    args = [a for a in sys.argv[1:] if a != "--force"]
+    force = "--force" in sys.argv[1:] or os.environ.get("OPTIONS_SNAPSHOT_FORCE") == "1"
+    session = args[0] if args else None
     if session not in ("open", "mid", "close"):
-        print("Usage: python cloud/fetch_options_snapshot.py <open|mid|close>")
+        print("Usage: python cloud/fetch_options_snapshot.py <open|mid|close> [--force]")
         sys.exit(1)
 
     today = datetime.now(MARKET_TZ).date()
+    out_path = f"{OUT_DIR}/{today.isoformat()}_{session}.csv"
+    if not force:
+        reason = non_trading_reason(today)
+        if reason:
+            print(f"SKIPPED: {today.isoformat()} (New York) is a {reason}; no snapshot written. Use --force to override.")
+            return
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            print(f"SKIPPED: {out_path} already exists and is non-empty; not overwriting. Use --force to override.")
+            return
+
     symbols = sorted(set(fetch_watchlist()) | set(TAIL_HEDGE_SYMBOLS))  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
     print(f"Watchlist: {len(symbols)} symbols (including {len(TAIL_HEDGE_SYMBOLS)} tail-hedge instruments)")
 
@@ -125,9 +168,7 @@ def main():
         if (i + 1) % 20 == 0:
             print(f"...{i + 1}/{len(symbols)} symbols processed, {len(all_rows)} rows so far")
 
-    out_dir = "data/github_sync/options_snapshots"
-    os.makedirs(out_dir, exist_ok=True)
-    out_path = f"{out_dir}/{today.isoformat()}_{session}.csv"
+    os.makedirs(OUT_DIR, exist_ok=True)
     pd.DataFrame(all_rows, columns=OUT_COLS).to_csv(out_path, index=False)
 
     print(

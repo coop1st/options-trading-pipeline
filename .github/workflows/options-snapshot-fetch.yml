@@ -57,6 +57,10 @@ jobs:
           fi
 
       - name: Fetch options snapshot
+        env:
+          # Scheduled runs skip holidays/weekends and an existing non-empty
+          # file for the session; a manual dispatch always fetches.
+          OPTIONS_SNAPSHOT_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
         run: python cloud/fetch_options_snapshot.py ${{ steps.session.outputs.session }}
 
       - name: Commit and push
