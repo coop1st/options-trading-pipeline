@@ -868,7 +868,7 @@ Steps:
    already-resolved price history).
 
 2. If the file is missing entirely, draft a short alert email to
-   owner-email-removed (subject "Monthly tuning review -- automation
+   the owner's Gmail address (subject "Monthly tuning review -- automation
    alert") stating the stats file wasn't found, and stop.
 
 3. For each of the four analyses, identify any finding whose sample size
@@ -895,7 +895,7 @@ Steps:
    rather than investigating further -- this matches how this repo's
    other automated commits already handle that situation).
 
-5. Draft (do NOT send) a Gmail email to owner-email-removed, subject
+5. Draft (do NOT send) a Gmail email to the owner's Gmail address, subject
    "Monthly tuning review -- {YYYY-MM}", summarizing the same content in
    plain language, and mention that the full file is committed to the
    repo at the path above. If literally nothing in the whole report

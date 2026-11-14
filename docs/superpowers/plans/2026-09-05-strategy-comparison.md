@@ -1304,11 +1304,11 @@ report doesn't contain.
    criterion's median versus below it.
 
 2. If the file is missing entirely, draft a short alert email to
-   owner-email-removed (subject "Strategy performance digest --
+   the owner's Gmail address (subject "Strategy performance digest --
    automation alert") stating the report wasn't found, and stop.
 
 3. Otherwise, draft (do NOT send) a Gmail email to
-   owner-email-removed, subject "Strategy performance digest --
+   the owner's Gmail address, subject "Strategy performance digest --
    {today's date}", with two sections:
    - "By strategy family": for each by_family row, state the strategy
      name, sample size, win rate, and average realized P&L. For any row

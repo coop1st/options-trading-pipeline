@@ -1124,7 +1124,7 @@ directory.
 2. Staleness check: parse the found file's date from its filename and
    compare it to today's date. If the file is missing, or its date is more
    than 1 calendar day older than the most recent weekday, draft a short
-   Gmail email to owner-email-removed using the create_draft tool,
+   Gmail email to the owner's Gmail address using the create_draft tool,
    subject "Options signals -- automation alert", body stating the latest
    date found (or "none found") and that the local nightly merge script
    appears not to have run. Stop here -- do not proceed to step 3.
@@ -1136,7 +1136,7 @@ directory.
    skew_call_pct_of_atm). The strategy/screening engine that turns these
    signals into concrete trade recommendations is a separate, not-yet-built
    sub-project -- so for now, draft (do NOT send) a short diagnostic Gmail
-   email to owner-email-removed, subject "Options signals -- {today's
+   email to the owner's Gmail address, subject "Options signals -- {today's
    date}", stating explicitly that this is a placeholder summary and not
    trade recommendations, then reporting: total contract count, count of
    distinct underlying symbols represented, and two short lists of up to 5

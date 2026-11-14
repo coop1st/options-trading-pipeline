@@ -1983,7 +1983,7 @@ Call `RemoteTrigger` with `action: "update"`, `trigger_id: "<id from Step 1>"`, 
    do, the most recent date present). Group rows by trade_id: each group
    is one recommended trade (its strategy, legs, and suggested_contracts
    are all in those rows). Draft (do NOT send) a Gmail email to
-   owner-email-removed, subject "Options recommendations -- {today's
+   the owner's Gmail address, subject "Options recommendations -- {today's
    date}", listing each recommended trade: symbol, strategy, each leg's
    contract and price (from its most recent rec: column), and
    suggested_contracts. Below the trade list, include a short
