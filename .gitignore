@@ -30,3 +30,6 @@ __pycache__/
 # Editor/OS cruft
 .DS_Store
 Thumbs.db
+
+# Local backups of cloud routine prompts -- contain personal detail, local only.
+routine_backups/
