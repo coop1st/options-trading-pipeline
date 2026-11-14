@@ -1,6 +1,8 @@
 # Handover — pick this up from here
 
-Last updated 2026-10-17 (afternoon). The 2026-10-17 and 2026-10-15 sections just
+> **11 Nov 2026: OPEN PROBLEM.** The local steps keep falling behind (36 of 54 trading days lost). The user is reopening the solution; read `HANDOVER-2026-11-11-local-steps-problem.md` first (local file on the owner's PC; not yet in the repo). This supersedes the 2026-09-17 "stay manual, don't re-raise" decision recorded in the 2026-10-15 section below.
+
+Last updated 2026-11-14 (privacy clean-up, snapshot holiday guard; see the banner above). Before that, 2026-10-17 (afternoon). The 2026-10-17 and 2026-10-15 sections just
 below are the newest (read 2026-10-17 first). Everything after them is the 2026-09-05
 build handover and is still accurate, apart from the corrections noted in those sections.
 
@@ -17,7 +19,7 @@ drafts once they are more than 5 days old.
   - Tools: Bash, Read, Glob, Grep, plus Gmail list_drafts, create_draft and delete_draft.
   - Read-only on the repo. It never sends.
   - Link: https://claude.ai/code/routines/trig_01VBvPrZuubm8yYaXhywrzgz
-- **Draft:** subject "Options status -- YYYY-MM-DD", to owner-email-removed. Contents:
+- **Draft:** subject "Options status -- YYYY-MM-DD", to the owner's Gmail address. Contents:
   - the verdict line: "ACTION TONIGHT ...", prefixed with "BEHIND by N trading day(s)" if any trading day has a
     `_close` snapshot newer than the newest signals file;
   - the signals and ledger dates (it flags a ledger that lags the signals, meaning `screen_trades.py` was not run);
@@ -100,8 +102,8 @@ oversized and that 8 trades mixed SPX and SPXW.
 
 ### 5. Next
 - **Mon 19 Oct evening, with the PC on:** after the "Options snapshot: close 2026-10-19" commit lands (often after
-  23:00 Irish time), run `merge_and_score.py` then `screen_trades.py`. The routine fires Tue 20 Oct at about 01:34 UTC
-  (`next_run_at` 2026-10-20T01:34Z). If the scripts are skipped, the newest file is still Fri 16 Oct, 3 days older than
+  23:00 Irish time), run `merge_and_score.py` then `screen_trades.py`. The routine (cron `30 1 * * 2-6`, 01:30 UTC) fires Tue 20 Oct at about 01:34 UTC
+  (`next_run_at` 2026-10-20T01:34Z; routines start a few minutes after the cron time). If the scripts are skipped, the newest file is still Fri 16 Oct, 3 days older than
   Mon 19 Oct, so the email will be the staleness alert again.
 - Then start the bid/ask pricing task, and fold in the open limits from section 4.
 
@@ -145,14 +147,16 @@ and the routine stopped at its staleness check, as it is designed to.
   SPX put expiring the next day, because there is no minimum
   days-to-expiry). The user said **"this is fine"**. Leave it alone.
 - The two local steps stay manual, with no cloud migration and no Windows
-  scheduled task (decided 2026-09-17). Help by telling the user when the
+  scheduled task (decided 2026-09-17; **REOPENED 11 Nov 2026**, see the banner
+  at the top). Help by telling the user when the
   PC needs to be on, and by running the scripts whenever the ledger is
   behind the snapshots.
 
 **Daily operating rule for the user:** on each US trading-day evening,
 with the PC on, run `merge_and_score.py` then `screen_trades.py`
 *after* that day's close snapshot has landed in the repo and *before*
-the routine fires at 01:30 UTC (~02:30 Irish). GitHub crons on this
+the routine fires (cron 01:30 UTC, in practice about 01:34 UTC; 01:30 Irish
+in winter, 02:30 in summer). GitHub crons on this
 account start hours late, so the close snapshot often lands around
 23:00 UTC or later. Check `git log` for "Options snapshot: close
 <date>" before running. If it's skipped, the next email is the
@@ -521,9 +525,10 @@ design/pre-work, both worth knowing about**:
 
 ## What's next
 
-- **All five sub-projects are now built and live — no implementation
-  work outstanding.** The system runs itself monthly/weekly/daily; the
-  only remaining "next steps" are data accumulation, not code:
+- **All five sub-projects are now built and live.** One implementation
+  task is still open: **bid/ask-based pricing** (the user's requirement;
+  see "Requirement from the user: use the bid/ask spread" above). Apart
+  from that, the remaining "next steps" are data accumulation, not code:
 - **Let terminal trades start accumulating** — no action needed, just
   time: the SPY iron condor recommended 2026-09-05 needs to hit its 55%
   target, its max-loss ceiling, or 30 DTE before `track_outcomes.py` has
