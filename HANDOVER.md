@@ -1,6 +1,6 @@
 # Handover — pick this up from here
 
-> **16 Nov 2026: scoring and screening now run in the cloud. The PC is no longer needed.** Read the section just below first. It supersedes every mention further down of "local", "manual" or "PC must be on" for `merge_and_score.py` and `screen_trades.py`, and the 2026-09-17 "stay manual" decision.
+> **16 Nov 2026: scoring and screening now run in the cloud. The PC is no longer needed.** To resume, read `HANDOVER-2026-11-16-cloud-scoring-and-midpoint-pricing.md` first (short, with the checks for Tue 17 Nov), then the section just below for the detail. It supersedes every mention further down of "local", "manual" or "PC must be on" for `merge_and_score.py` and `screen_trades.py`, and the 2026-09-17 "stay manual" decision.
 
 ## Session 2026-11-16: no more lost days (READ FIRST)
 
