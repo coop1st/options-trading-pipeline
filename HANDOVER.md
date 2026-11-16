@@ -1,8 +1,38 @@
 # Handover — pick this up from here
 
-> **11 Nov 2026: OPEN PROBLEM.** The local steps keep falling behind (36 of 54 trading days lost). The user is reopening the solution; read `HANDOVER-2026-11-11-local-steps-problem.md` first (local file on the owner's PC; not yet in the repo). This supersedes the 2026-09-17 "stay manual, don't re-raise" decision recorded in the 2026-10-15 section below.
+> **16 Nov 2026: scoring and screening now run in the cloud. The PC is no longer needed.** Read the section just below first. It supersedes every mention further down of "local", "manual" or "PC must be on" for `merge_and_score.py` and `screen_trades.py`, and the 2026-09-17 "stay manual" decision.
 
-Last updated 2026-11-14 (privacy clean-up, snapshot holiday guard; see the banner above). Before that, 2026-10-17 (afternoon). The 2026-10-17 and 2026-10-15 sections just
+## Session 2026-11-16: no more lost days (READ FIRST)
+
+**The problem.** The two scripts ran only by hand on the PC and scored only the newest snapshot date, so 38 of 57 trading days had no signals file. That also left the IV history with 19 days instead of 57, and the outcome tracker checked exits on only those 19 days.
+
+**What changed** (commit `408154e`):
+- `merge_and_score.py` scores **every** day that has a snapshot and no signals file, oldest first. A day with no close snapshot is scored from mid/open only once a later day's snapshots exist. One failed day does not block the others; the run exits non-zero so the failure shows.
+- The ATM-IV and skew history is published as one small file per scored day in `data/github_sync/iv_history/` (`pipeline/iv_history.py`). Scoring loads it into the database first, so a runner with an empty database works. The 1.1 GB local database is no longer needed by anything; the snapshot CSVs are the record, and only the files a run needs are merged.
+- `screen_trades.py` screens the newest signals date once. A day already in the ledger is left alone unless `--force` is passed.
+- `pipeline/publish.py`: shared commit/push that rebases and retries.
+- `.github/workflows/score-and-screen.yml`: runs after every "Options snapshot fetch" run (`workflow_run`), plus backup crons `15 2 * * 2-6` and `15 8 * * 2-6` UTC, plus manual dispatch. One run at a time.
+- `pipeline/verify_score_all_days.py`: checks the day-selection rule and the history round trip (also run as a step in the workflow).
+
+**Proof.** A simulated cloud run (empty database plus the published history) reproduced `signals/2026-11-13.csv` exactly. The first cloud run (manual dispatch, run 43957387896) scored all 38 missing days in 6 minutes: commit `c86f0f4`. Every snapshot day now has a signals file and an `iv_history` file. No recommendations were created for past days (the user chose history only).
+
+**Routines changed the same evening:**
+- Nightly email `trig_019GMK964MKrAunz5KZiZv8x`: cron moved from `30 1` to `30 3 * * 2-6` UTC. Staleness is now "signals date earlier than the newest close snapshot date", not a comparison with today (the old rule passed a single missed night and gave a false alert when fired on a Monday).
+- Status email `trig_01VBvPrZuubm8yYaXhywrzgz`: verdict is now "ALL GOOD: nothing for you to do" or "PROBLEM: ...". No more "turn the PC on".
+- Prompt backups: `routine_backups/options_*_prompt_2026-11-16.txt` (local only).
+
+**Open, for the owner to decide:**
+1. **Replay closed trades against the full history?** Recomputing every trade with all 57 days changes 104 of 146 closed results (12 targets become max losses, 9 the reverse; average of the changed trades goes from +0.6% to -3.2%). The tracker skips closed trades, so the ledger and `strategy_performance_report.csv` still show the old results until the outcome columns are cleared and the tracker re-run (as was done on 2026-10-15).
+2. **Holiday copies.** `2026-09-07` (Labor Day) is a 99.9% copy of the previous day, fetched before the 14 Nov holiday guard, and is now scored. `2026-09-05` is a Saturday copy that was already scored and has trades. Low impact; removing them means deleting the snapshot files too, or they are re-scored.
+3. The existing 19 signals files were left as they were, so their IV percentiles still reflect the thin history of the time.
+4. Snapshot retention is still unsolved: `options_snapshots/` is about 710 MB and every cloud job checks all of it out.
+5. Still waiting: bid/ask-based pricing, then a data subscription (2026-10-15 section).
+
+**First real night:** the close snapshot for Mon 16 Nov lands about 00:30-00:45 Dublin on 17 Nov; "Score and screen" should run right after and the 03:30 email should be real recommendations for 2026-11-16.
+
+`HANDOVER-2026-11-11-local-steps-problem.md` (local, untracked) is the problem statement this session answered. A pre-change copy of the database is at `data/db/options_pre_backfill_2026-11-16.db` (1.1 GB, local, safe to delete once the cloud runs have been clean for a week).
+
+Last updated 2026-11-16. Before that, 2026-11-14 (privacy clean-up, snapshot holiday guard) and 2026-10-17 (afternoon). The 2026-10-17 and 2026-10-15 sections just
 below are the newest (read 2026-10-17 first). Everything after them is the 2026-09-05
 build handover and is still accurate, apart from the corrections noted in those sections.
 
