@@ -23,6 +23,13 @@
 
 **Open, for the owner to decide:**
 1. **Replay closed trades against the full history?** Recomputing every trade with all 57 days changes 104 of 146 closed results (12 targets become max losses, 9 the reverse; average of the changed trades goes from +0.6% to -3.2%). The tracker skips closed trades, so the ledger and `strategy_performance_report.csv` still show the old results until the outcome columns are cleared and the tracker re-run (as was done on 2026-10-15).
+   **Audit the same evening (owner asked for a full check): do NOT apply the replay as it stands.** Findings:
+   - Source is real: snapshot underlying prices equal Nasdaq's official daily close on every market day for all 13 symbols checked (to the cent).
+   - Backfill is faithful: all 38 re-scored signals files equal their snapshot rows exactly. Four OLD files were scored from an earlier session (`2026-09-16`, `09-17`, `09-30` from open; `09-22` from mid), before the close had landed.
+   - The weakness is `last_price`. In a close snapshot only 35-47% of contracts traded that day; in the signals files 75% did. 21 of 136 replayed exits used a leg whose price was not from that day. Net prices of calendars are tiny next to the legs' bid-ask width (long calendar median 1.9x, double diagonal 3.6x), so percentages explode.
+   - Worked example `2026-10-14-DECK-5`: "max loss -286% on 15 Oct" is the long leg's fresh 2.80 minus the short leg's stale 3.58 from the day before. Not a real loss.
+   - Same 146 trades, sized totals: old ledger +$3.4k; replay on last price -$10.4k; replay using only same-day trades +$19.6k; replay on bid/ask midpoint +$26.2k. Win/lose verdict agrees between last price and midpoint on only 62% of trades. Iron condors are positive every way; short calendars positive on all three replays; long calendars and double diagonals change sign with the method.
+   - So: build bid/ask pricing first (entries and exits from quotes, legs required to be quoted that day), then replay once.
 2. **Holiday copies.** `2026-09-07` (Labor Day) is a 99.9% copy of the previous day, fetched before the 14 Nov holiday guard, and is now scored. `2026-09-05` is a Saturday copy that was already scored and has trades. Low impact; removing them means deleting the snapshot files too, or they are re-scored.
 3. The existing 19 signals files were left as they were, so their IV percentiles still reflect the thin history of the time.
 4. Snapshot retention is still unsolved: `options_snapshots/` is about 710 MB and every cloud job checks all of it out.
