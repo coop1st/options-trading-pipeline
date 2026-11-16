@@ -246,13 +246,13 @@ def run_screen_trades(force=False):
     refresh_atr_if_stale()
 
     all_signals = pd.read_csv(signals_path)
-    # Trades are built only from contracts that traded that day and have a
-    # real bid and ask, and every price the builders and the scorer use
+    # Trades are built only from contracts with a real bid and ask, and
+    # every price the builders and the scorer use
     # is the bid/ask midpoint (pricing.py). The ledger's rec: cells
     # therefore hold "contract/midpoint".
     signals = as_trade_prices(all_signals, snapshot_date)
     print(f"Screening {len(signals)} contracts from {snapshot_date} at bid/ask midpoints "
-          f"({len(all_signals) - len(signals)} of {len(all_signals)} left out: no trade that day or no two-sided quote)...")
+          f"({len(all_signals) - len(signals)} of {len(all_signals)} left out: no real two-sided quote)...")
 
     bias = fetch_directional_bias()
     candidates = build_all_candidates(signals, snapshot_date, bias)

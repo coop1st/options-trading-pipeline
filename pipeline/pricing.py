@@ -4,10 +4,19 @@ The one place that decides what an option contract is "worth" on a day.
 Rule (owner's decisions, 2026-11-16; the project's own operationalization,
 not a book rule):
 
-1. A contract is priced on a day only if it TRADED that day
-   (last_trade_date falls on the snapshot date) AND has a real two-sided
-   quote (bid > 0 and ask >= bid). Anything else is "not priced that day".
+1. A contract is priced on a day if it has a real two-sided quote in
+   that day's snapshot (bid > 0 and ask >= bid). Anything else is "not
+   priced that day".
 2. Its price is the bid/ask MIDPOINT -- for entries and for exits alike.
+
+A trade that day is NOT required. A quote is a live price whether or not
+the contract traded; requiring a trade was a leftover from pricing at
+last_price (where no trade meant a stale price) and only discarded good
+quotes. What makes a quote trustworthy is WHEN the snapshot was taken,
+which merge_and_score.best_quoted_session handles by scoring each day
+from the snapshot captured closest to the close. A snapshot taken on a
+non-market day must not be scored at all (the fetch skips weekends and
+NYSE holidays; see NON_MARKET_DAYS below for the two old ones).
 
 Why not last_price: it is the contract's most recent trade, whenever that
 was. An audit found multi-leg trades being valued with one leg's price
@@ -34,14 +43,21 @@ import pandas as pd
 MID_COL = "mid_price"
 
 
+# Snapshots that exist for days the market was shut, fetched before the
+# holiday/weekend guard was added on 2026-11-14. Their quotes are copies of
+# the previous session's, so nothing is priced on them.
+NON_MARKET_DAYS = {"2026-09-05", "2026-09-07"}
+
+
 def priced_contracts(df, snapshot_date):
     """The rows of a signals/snapshot frame that are priced on
     snapshot_date under the rule above, with a MID_COL column added.
-    Needs columns: last_trade_date, bid, ask."""
-    traded_on = df["last_trade_date"].astype(str).str[:10]
+    Needs columns: bid, ask."""
     bid = pd.to_numeric(df["bid"], errors="coerce")
     ask = pd.to_numeric(df["ask"], errors="coerce")
-    ok = (traded_on == snapshot_date) & (bid > 0) & (ask >= bid)
+    ok = (bid > 0) & (ask >= bid)
+    if snapshot_date in NON_MARKET_DAYS:
+        ok = ok & False
     out = df[ok].copy()
     out[MID_COL] = ((bid[ok] + ask[ok]) / 2).round(4)
     return out

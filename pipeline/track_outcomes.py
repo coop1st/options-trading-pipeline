@@ -34,9 +34,9 @@ TERMINAL_STATUSES = {
     "HIT_TARGET", "HIT_MAX_LOSS", "TIME_EXIT", "EXPIRED_PROFIT", "EXPIRED_LOSS",
     "UNRESOLVED_AT_EXPIRATION", "ENTRY_NOT_PRICEABLE",
 }
-# ENTRY_NOT_PRICEABLE: on the entry day at least one leg did not trade or
-# had no real bid and ask, or the legs' midpoints gave no positive net
-# price -- so there was never a real, same-moment price to enter at and no
+# ENTRY_NOT_PRICEABLE: on the entry day at least one leg had no real bid
+# and ask, or the legs' midpoints gave no positive net price -- so there
+# was never a real, same-moment price to enter at and no
 # result can honestly be computed. Terminal, never scored. Trades
 # recommended since 2026-11-17 are only built from priced contracts, so
 # this status is for the older ones.
@@ -281,9 +281,9 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
 
 def priced_entry_legs(strategy, legs, signals_by_date, entry_date):
     """The trade's legs re-priced at the entry day's midpoints, or None if
-    the entry cannot be priced under pricing.py's rule: a leg did not
-    trade that day, has no real two-sided quote, or the legs' midpoints
-    give no positive net credit/debit (so there was no trade to enter).
+    the entry cannot be priced under pricing.py's rule: a leg has no real
+    two-sided quote that day, or the legs' midpoints give no positive net
+    credit/debit (so there was no trade to enter).
 
     Entry and every later valuation therefore sit on the same basis. The
     price stored in the ledger's rec: cell is what was shown at the time
@@ -299,16 +299,14 @@ def priced_entry_legs(strategy, legs, signals_by_date, entry_date):
 
 def _load_all_signals():
     """{date_str: {contract_symbol: midpoint}} for every signals.csv
-    currently in the repo -- only contracts that traded that day and have
-    a real bid and ask (see pricing.py). evaluate_trade skips any day on
-    which a leg is missing, so a stale or unquoted leg simply means the
-    trade is not valued that day, and a snapshot taken on a non-market
-    day (nothing traded) is inert."""
+    currently in the repo -- only contracts with a real bid and ask (see
+    pricing.py). evaluate_trade skips any day on which a leg is missing,
+    so an unquoted leg simply means the trade is not valued that day."""
     result = {}
     if not SIGNALS_DIR.exists():
         return result
     for f in sorted(SIGNALS_DIR.glob("*.csv")):
-        df = pd.read_csv(f, usecols=["contract_symbol", "bid", "ask", "last_trade_date"])
+        df = pd.read_csv(f, usecols=["contract_symbol", "bid", "ask"])
         result[f.stem] = price_lookup(df, f.stem)
     return result
 
