@@ -7,11 +7,23 @@ an ephemeral GitHub Actions runner that only has this repo cloned, not
 pipeline/config.py's Windows-specific SSL setup or the local database.
 
 Run from the repo root: `python cloud/fetch_options_snapshot.py <session> [--force]`
-  where <session> is one of: open, mid, close
+  where <session> is one of: open, mid, close, preclose
 
 Skips (exit 0, no file written) on weekends, NYSE full-day holidays, and
 when today's file for that session already exists and is non-empty.
 `--force` or OPTIONS_SNAPSHOT_FORCE=1 overrides both skips (manual runs).
+
+"preclose" is the snapshot the pricing is meant to come from: it is only
+taken if the run actually STARTS in the last hour of trading
+(PRECLOSE_FROM-PRECLOSE_TO, New York time), when bid/ask quotes are live
+and tight. GitHub starts scheduled jobs hours late, so
+options-preclose-fetch.yml fires many times through the day and all but
+the one that lands in the window skip here.
+
+Every snapshot also gets data/github_sync/snapshot_times/{date}_{session}.txt
+holding the UTC time the fetch started, because the session name only
+says which cron asked for it, not when it ran -- and quote quality
+depends on when it ran (pipeline/merge_and_score.best_quoted_session).
 """
 import os
 import sys
@@ -50,6 +62,16 @@ NYSE_FULL_DAY_HOLIDAYS = {
     date(2027, 11, 25), date(2027, 12, 24),
 }
 OUT_DIR = "data/github_sync/options_snapshots"
+TIMES_DIR = "data/github_sync/snapshot_times"
+SESSIONS = ("open", "mid", "close", "preclose")
+# New York clock hours. A full fetch takes about 15 minutes, so a start by
+# 15:50 finishes around the 16:00 close.
+PRECLOSE_FROM, PRECLOSE_TO = 15.0, 15.0 + 50 / 60
+
+
+def in_preclose_window(now_ny):
+    hour = now_ny.hour + now_ny.minute / 60
+    return PRECLOSE_FROM <= hour <= PRECLOSE_TO
 
 
 def non_trading_reason(day):
@@ -134,11 +156,12 @@ def main():
     args = [a for a in sys.argv[1:] if a != "--force"]
     force = "--force" in sys.argv[1:] or os.environ.get("OPTIONS_SNAPSHOT_FORCE") == "1"
     session = args[0] if args else None
-    if session not in ("open", "mid", "close"):
-        print("Usage: python cloud/fetch_options_snapshot.py <open|mid|close> [--force]")
+    if session not in SESSIONS:
+        print("Usage: python cloud/fetch_options_snapshot.py <open|mid|close|preclose> [--force]")
         sys.exit(1)
 
-    today = datetime.now(MARKET_TZ).date()
+    started = datetime.now(MARKET_TZ)
+    today = started.date()
     out_path = f"{OUT_DIR}/{today.isoformat()}_{session}.csv"
     if not force:
         reason = non_trading_reason(today)
@@ -147,6 +170,10 @@ def main():
             return
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             print(f"SKIPPED: {out_path} already exists and is non-empty; not overwriting. Use --force to override.")
+            return
+        if session == "preclose" and not in_preclose_window(started):
+            print(f"SKIPPED: it is {started:%H:%M} in New York, outside the preclose window "
+                  f"(15:00-15:50). Use --force to override.")
             return
 
     symbols = sorted(set(fetch_watchlist()) | set(TAIL_HEDGE_SYMBOLS))  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
@@ -170,6 +197,9 @@ def main():
 
     os.makedirs(OUT_DIR, exist_ok=True)
     pd.DataFrame(all_rows, columns=OUT_COLS).to_csv(out_path, index=False)
+    os.makedirs(TIMES_DIR, exist_ok=True)
+    with open(f"{TIMES_DIR}/{today.isoformat()}_{session}.txt", "w", encoding="utf-8", newline="\n") as f:
+        f.write(started.astimezone(ZoneInfo("UTC")).isoformat(timespec="seconds") + "\n")
 
     print(
         f"SNAPSHOT_READY session={session} rows={len(all_rows)} "

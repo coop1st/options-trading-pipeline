@@ -1,0 +1,86 @@
+name: Options preclose fetch
+
+# Captures the options chains in the LAST HOUR OF TRADING, when bid/ask
+# quotes are live and tight. This is the snapshot trades are priced from
+# (bid/ask midpoints -- pipeline/pricing.py); the open/mid/close snapshots
+# are the fallback.
+#
+# Why so many schedule lines: GitHub starts scheduled jobs anywhere from
+# minutes to 8+ hours late on this repo, so no single cron can be aimed at
+# 15:00-15:50 New York. Instead this fires every 20 minutes across the
+# day; the first step checks the New York clock and all runs but the one
+# that lands inside the window stop there in a few seconds, before
+# checking anything out. The fetch script repeats the check and also
+# refuses to overwrite a snapshot that already exists.
+
+on:
+  schedule:
+    - cron: "0,20,40 12-20 * * 1-5"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: options-preclose-fetch
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Is it the last hour of trading in New York?
+        id: window
+        run: |
+          now=$(TZ=America/New_York date +%H%M)
+          dow=$(TZ=America/New_York date +%u)
+          echo "New York time $now, weekday $dow"
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          elif [ "$dow" -le 5 ] && [ "$((10#$now))" -ge 1500 ] && [ "$((10#$now))" -le 1550 ]; then
+            echo "go=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "Outside 15:00-15:50 New York on a weekday; nothing to do."
+            echo "go=no" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v7
+        if: steps.window.outputs.go == 'yes'
+
+      - uses: actions/setup-python@v7
+        if: steps.window.outputs.go == 'yes'
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        if: steps.window.outputs.go == 'yes'
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Fetch options snapshot
+        if: steps.window.outputs.go == 'yes'
+        env:
+          # A manual dispatch always fetches; scheduled runs skip holidays,
+          # an existing file, and a start outside the window.
+          OPTIONS_SNAPSHOT_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python cloud/fetch_options_snapshot.py preclose
+
+      - name: Commit and push
+        if: steps.window.outputs.go == 'yes'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/github_sync/options_snapshots/ data/github_sync/snapshot_times/
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Options snapshot: preclose $(TZ=America/New_York date +%Y-%m-%d)"
+            for attempt in 1 2 3 4 5; do
+              git push && exit 0
+              echo "Push rejected (attempt $attempt); rebasing onto origin and retrying"
+              sleep $((attempt * 5))
+              git pull --rebase origin "${GITHUB_REF_NAME}"
+            done
+            echo "::error::Push failed after 5 attempts"
+            exit 1
+          fi

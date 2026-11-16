@@ -67,7 +67,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add data/github_sync/options_snapshots/
+          git add data/github_sync/options_snapshots/ data/github_sync/snapshot_times/
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else

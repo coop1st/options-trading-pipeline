@@ -48,6 +48,36 @@ def verify_select_dates():
     check("no snapshots at all -> nothing to score",
           select_dates_to_score({}, set()) == [])
 
+    # Which snapshot to price from: the one captured closest to the 16:00
+    # New York close, within 09:45-17:00 that day -- whatever its label.
+    from datetime import datetime, timezone
+    from merge_and_score import best_quoted_session
+    utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
+    # 13 Nov 2026 (EST, UTC-5), as really captured: "open" 15:54 NY, "mid" 17:20 NY, "close" 19:44 NY
+    times = {("2026-11-13", "open"): utc(2026, 11, 13, 20, 54), ("2026-11-13", "mid"): utc(2026, 11, 13, 22, 20),
+             ("2026-11-13", "close"): utc(2026, 11, 14, 0, 44)}
+    check("the snapshot captured in the last minutes of trading wins, even though it is labelled 'open'",
+          best_quoted_session("2026-11-13", all3, times) == ("open", True))
+    times_pre = {**times, ("2026-11-13", "preclose"): utc(2026, 11, 13, 20, 58)}
+    check("a preclose snapshot nearer the close beats it",
+          best_quoted_session("2026-11-13", all3 | {"preclose"}, times_pre) == ("preclose", True))
+    late = {("2026-11-09", "open"): utc(2026, 11, 9, 23, 22), ("2026-11-09", "mid"): utc(2026, 11, 10, 0, 35),
+            ("2026-11-09", "close"): utc(2026, 11, 10, 2, 40)}
+    check("when every capture was hours after the close, fall back to 'close' and flag it",
+          best_quoted_session("2026-11-09", all3, late) == ("close", False))
+    check("unknown capture times -> old preference, flagged", best_quoted_session("2026-11-13", all3, {}) == ("close", False))
+    check("a capture after midnight New York does not count for the previous day",
+          best_quoted_session("2026-11-13", {"close"}, {("2026-11-13", "close"): utc(2026, 11, 14, 15, 0)}) == ("close", False))
+    check("summer time is handled (EDT, UTC-4): 19:30 UTC is 15:30 New York",
+          best_quoted_session("2026-09-15", {"mid", "close"}, {("2026-09-15", "mid"): utc(2026, 9, 15, 19, 30),
+                                                             ("2026-09-15", "close"): utc(2026, 9, 15, 23, 30)}) == ("mid", True))
+    check("select uses the best-timed session for each day",
+          select_dates_to_score({"2026-11-13": all3}, set(), times) == [("2026-11-13", "open")])
+    check("the newest day still waits for its close snapshot to exist",
+          select_dates_to_score({"2026-11-13": {"open", "mid"}}, set(), times) == [])
+    check("rescore_all returns scored days too",
+          select_dates_to_score({"2026-11-13": all3}, {"2026-11-13"}, times, rescore_all=True) == [("2026-11-13", "open")])
+
 
 def verify_iv_history_round_trip():
     import db

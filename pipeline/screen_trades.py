@@ -19,6 +19,7 @@ import pandas as pd
 
 import iv_history
 from atr import refresh_atr_if_stale
+from pricing import as_trade_prices
 from publish import commit_and_push, git_pull
 from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
@@ -78,17 +79,6 @@ def already_screened(snapshot_date):
         # The rec: column, not the trade rows: a day on which no candidate
         # cleared the gates is still a screened day.
         return f"rec:{snapshot_date}" in (csv.DictReader(f).fieldnames or [])
-
-
-def traded_that_day(signals, snapshot_date):
-    """Only the contracts whose last trade happened on snapshot_date.
-    A trade is only ever built from these: a leg priced off a stale print
-    from an earlier day gives a net entry price that never existed, and
-    track_outcomes.py would mark the trade ENTRY_NOT_TRADED anyway (see
-    track_outcomes.same_day_prices). The project's own data-quality rule,
-    not a book rule."""
-    traded_on = signals["last_trade_date"].astype(str).str[:10]
-    return signals[traded_on == snapshot_date]
 
 
 def _other_expirations_atm_iv(signals, symbol, this_expiration):
@@ -256,9 +246,13 @@ def run_screen_trades(force=False):
     refresh_atr_if_stale()
 
     all_signals = pd.read_csv(signals_path)
-    signals = traded_that_day(all_signals, snapshot_date)
-    print(f"Screening {len(signals)} contracts from {snapshot_date} "
-          f"({len(all_signals) - len(signals)} of {len(all_signals)} left out: no trade that day)...")
+    # Trades are built only from contracts that traded that day and have a
+    # real bid and ask, and every price the builders and the scorer use
+    # is the bid/ask midpoint (pricing.py). The ledger's rec: cells
+    # therefore hold "contract/midpoint".
+    signals = as_trade_prices(all_signals, snapshot_date)
+    print(f"Screening {len(signals)} contracts from {snapshot_date} at bid/ask midpoints "
+          f"({len(all_signals) - len(signals)} of {len(all_signals)} left out: no trade that day or no two-sided quote)...")
 
     bias = fetch_directional_bias()
     candidates = build_all_candidates(signals, snapshot_date, bias)

@@ -153,42 +153,62 @@ def main():
                                   date(2026, 5, 12), entry_date="2026-05-10")
     check("entry-day snapshot itself ignored -> OPEN", status == "OPEN")
 
-    # Same-day-trades-only pricing (audit 2026-11-16). Rebuilds the real
-    # DECK case: on 15 Oct the long leg traded (2.80) but the short leg
-    # still showed 14 Oct's 3.58. Priced naively that is a -286% "max
+    # Pricing rule (pricing.py, 2026-11-16): a contract is priced on a day
+    # only if it traded that day AND has a real bid and ask, and its price
+    # is the bid/ask midpoint. Rebuilds the real DECK case from the audit:
+    # on 15 Oct the long leg traded (2.80) but the short leg still showed
+    # 14 Oct's 3.58 -- valued naively on last prices that is a -286% "max
     # loss"; under the rule the day is simply not priced.
     import pandas as pd
-    from track_outcomes import entry_was_traded, same_day_prices
+    import pricing
+    import screen_trades
+    from track_outcomes import priced_entry_legs
 
     short_c, long_c = "DECK261030P00080000", "DECK261120P00080000"
-    day = lambda rows: pd.DataFrame(rows, columns=["contract_symbol", "last_price", "last_trade_date"])
+    cols = ["contract_symbol", "last_price", "bid", "ask", "last_trade_date"]
+    day = lambda rows: pd.DataFrame(rows, columns=cols)
     files = {
-        "2026-10-14": day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 4.00, "2026-10-14 18:02:44+00:00")]),
-        "2026-10-15": day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 2.80, "2026-10-15 15:10:09+00:00")]),
-        "2026-10-23": day([(short_c, 1.25, "2026-10-23 17:20:00+00:00"), (long_c, 2.95, "2026-10-23 19:40:00+00:00")]),
+        "2026-10-14": day([(short_c, 3.58, 3.00, 3.20, "2026-10-14 19:55:01+00:00"),
+                           (long_c, 4.00, 3.60, 4.00, "2026-10-14 18:02:44+00:00")]),
+        "2026-10-15": day([(short_c, 3.58, 1.75, 2.95, "2026-10-14 19:55:01+00:00"),
+                           (long_c, 2.80, 2.60, 3.00, "2026-10-15 15:10:09+00:00")]),
+        "2026-10-23": day([(short_c, 1.25, 1.10, 1.50, "2026-10-23 17:20:00+00:00"),
+                           (long_c, 2.95, 2.65, 2.95, "2026-10-23 19:40:00+00:00")]),
     }
-    fresh = {d: same_day_prices(df, d) for d, df in files.items()}
-    check("a price from an earlier day's trade is dropped", short_c not in fresh["2026-10-15"])
-    check("a price from that day's trade is kept", fresh["2026-10-15"] == {long_c: 2.80})
-    deck_legs = [_leg("short put", 3.58, short_c), _leg("long put", 4.00, long_c)]
-    check("entry counts as traded when every leg traded that day", entry_was_traded(deck_legs, fresh, "2026-10-14"))
-    status, out_date, pct = evaluate_trade("long calendar", deck_legs, fresh, date(2026, 10, 26), entry_date="2026-10-14")
-    check("the stale-leg day is skipped; the result comes from the next fully traded day",
-          status == "HIT_TARGET" and out_date == "2026-10-23")
-    naive = {d: dict(zip(df["contract_symbol"], df["last_price"])) for d, df in files.items()}
-    status, out_date, pct = evaluate_trade("long calendar", deck_legs, naive, date(2026, 10, 26), entry_date="2026-10-14")
-    check("(control) without the rule the same data gives the false max loss on 15 Oct",
-          status == "HIT_MAX_LOSS" and out_date == "2026-10-15")
-    stale_entry = {"2026-10-14": {long_c: 4.00}}
-    check("entry is not traded when a leg has no same-day price", not entry_was_traded(deck_legs, stale_entry, "2026-10-14"))
-    holiday = day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 4.00, "2026-10-14 18:02:44+00:00")])
-    check("a non-market-day copy prices nothing", same_day_prices(holiday, "2026-10-17") == {})
+    mids = {d: pricing.price_lookup(df, d) for d, df in files.items()}
+    check("price is the bid/ask midpoint, not the last trade",
+          mids["2026-10-14"] == {short_c: 3.10, long_c: 3.80})
+    check("a contract that did not trade that day is not priced", short_c not in mids["2026-10-15"])
+    no_bid = day([(short_c, 1.0, 0.0, 1.2, "2026-10-23 17:20:00+00:00")])
+    check("a contract with no bid is not priced", pricing.price_lookup(no_bid, "2026-10-23") == {})
+    crossed = day([(short_c, 1.0, 1.3, 1.2, "2026-10-23 17:20:00+00:00")])
+    check("a crossed quote (ask below bid) is not priced", pricing.price_lookup(crossed, "2026-10-23") == {})
+    check("a non-market-day copy prices nothing", pricing.price_lookup(files["2026-10-14"], "2026-10-17") == {})
 
-    import screen_trades
-    sig = pd.DataFrame({"contract_symbol": [short_c, long_c],
-                        "last_trade_date": ["2026-10-14 19:55:01+00:00", "2026-10-15 15:10:09+00:00"]})
-    check("screening only sees contracts traded that day",
-          list(screen_trades.traded_that_day(sig, "2026-10-15")["contract_symbol"]) == [long_c])
+    ledger_legs = [_leg("short put", 3.58, short_c), _leg("long put", 4.00, long_c)]  # last prices, as recorded
+    entry_legs = priced_entry_legs("long calendar", ledger_legs, mids, "2026-10-14")
+    check("entry is re-priced at the entry day's midpoints (debit 0.70, not the recorded 0.42)",
+          entry_legs is not None and [l["entry_price"] for l in entry_legs] == [3.10, 3.80])
+    status, out_date, pct = evaluate_trade("long calendar", entry_legs, mids, date(2026, 10, 26), entry_date="2026-10-14")
+    check("the stale-leg day is skipped; the result comes from the next fully priced day, at midpoints",
+          status == "HIT_TARGET" and out_date == "2026-10-23" and abs(pct - (1.50 - 0.70) / 0.70) < 1e-9)
+    naive = {d: dict(zip(df["contract_symbol"], df["last_price"])) for d, df in files.items()}
+    status, out_date, pct = evaluate_trade("long calendar", ledger_legs, naive, date(2026, 10, 26), entry_date="2026-10-14")
+    check("(control) on last prices the same data gives the false max loss on 15 Oct",
+          status == "HIT_MAX_LOSS" and out_date == "2026-10-15")
+    check("entry not priceable when a leg did not trade on the entry day",
+          priced_entry_legs("long calendar", ledger_legs, {"2026-10-14": {long_c: 3.80}}, "2026-10-14") is None)
+    check("entry not priceable when the midpoints give no positive net price",
+          priced_entry_legs("long calendar", ledger_legs, {"2026-10-14": {short_c: 3.80, long_c: 3.80}}, "2026-10-14") is None)
+    check("entry not priceable when the entry day has no file", priced_entry_legs("long calendar", ledger_legs, {}, "2026-10-14") is None)
+
+    view = pricing.as_trade_prices(files["2026-10-15"], "2026-10-15")
+    check("screening sees only priced contracts, with the midpoint in the price field and the last trade kept aside",
+          list(view["contract_symbol"]) == [long_c] and list(view["last_price"]) == [2.80]
+          and list(view["last_trade_price"]) == [2.80] and list(view[pricing.MID_COL]) == [2.80])
+    view14 = pricing.as_trade_prices(files["2026-10-14"], "2026-10-14").set_index("contract_symbol")
+    check("...midpoint replaces a last price that sat outside the quote",
+          view14.loc[short_c, "last_price"] == 3.10 and view14.loc[short_c, "last_trade_price"] == 3.58)
 
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:

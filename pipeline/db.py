@@ -253,6 +253,17 @@ def get_term_structure_spread_history(symbol, front_expiration, back_expiration,
         return [f - b for f, b in rows]
 
 
+def get_snapshot_rows(snapshot_date, session):
+    """Every merged row of one snapshot (one date, one session)."""
+    with get_connection() as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT * FROM options_chains WHERE snapshot_date = ? AND session = ?",
+            (snapshot_date, session),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_latest_snapshot_rows(snapshot_date):
     """Returns (rows, session) for the most complete session captured that
     day, preferring close > mid > open -- if a symbol was only captured

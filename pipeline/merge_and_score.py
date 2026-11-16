@@ -19,10 +19,11 @@ stops a missed night from losing that day for good: the next run picks
 it up. (Before 2026-11-16 only the newest day was scored, and two thirds
 of all trading days were lost.)
 
-Run from the repo root: `python pipeline/merge_and_score.py`
+Run from the repo root: `python pipeline/merge_and_score.py [--rescore-all]`
 """
 import sys
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -30,7 +31,7 @@ import iv_history
 from config import MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, RISK_FREE_RATE, SKEW_DELTA_TARGET
 from db import (
     get_atm_iv_history,
-    get_latest_snapshot_rows,
+    get_snapshot_rows,
     init_db,
     is_merged,
     mark_merged,
@@ -43,7 +44,10 @@ from publish import commit_and_push, git_pull
 
 SNAPSHOTS_DIR = PROJECT_DIR / "data" / "github_sync" / "options_snapshots"
 SIGNALS_DIR = PROJECT_DIR / "data" / "github_sync" / "signals"
-SESSION_PREFERENCE = ("close", "mid", "open")
+TIMES_DIR = PROJECT_DIR / "data" / "github_sync" / "snapshot_times"
+SESSION_PREFERENCE = ("close", "preclose", "mid", "open")
+MARKET_TZ = ZoneInfo("America/New_York")
+WELL_TIMED_FROM, WELL_TIMED_TO = 9.75, 17.0  # New York clock hours
 
 
 def snapshot_sessions():
@@ -56,30 +60,81 @@ def snapshot_sessions():
     return sessions
 
 
-def select_dates_to_score(sessions_by_date, scored_dates):
+def capture_times():
+    """{(date_str, session): aware UTC datetime} from
+    data/github_sync/snapshot_times/{date}_{session}.txt -- when each
+    snapshot was really captured. The files' names only say which cron
+    asked for them; GitHub starts those crons hours late, so a "close"
+    file is typically captured 2.5-5.5 hours after the close."""
+    times = {}
+    if TIMES_DIR.exists():
+        for f in TIMES_DIR.glob("*.txt"):
+            try:
+                stem_date, session = f.stem.rsplit("_", 1)
+                times[(stem_date, session)] = datetime.fromisoformat(f.read_text(encoding="utf-8").strip())
+            except ValueError:
+                continue
+    return times
+
+
+def best_quoted_session(snapshot_date, sessions, times):
+    """Which of a day's snapshots to price from.
+
+    Quotes are only good while the market is open or just after: measured
+    on Oct-Nov 2026, snapshots captured during market hours or within an
+    hour of the close had a real bid and ask on 86% of liquid contracts,
+    6-7% wide; later captures were 15-17% wide and some had lost half
+    their quotes. So: among the snapshots captured ON the trading day
+    between 09:45 and 17:00 New York, take the one captured closest to
+    the 16:00 close. If none was (or capture times are unknown), fall
+    back to the old preference close > mid > open and say so.
+
+    Returns (session, well_timed: bool). The window is the project's own
+    operationalization of the measurement above, not a book rule."""
+    candidates = []
+    for session in sessions:
+        ts = times.get((snapshot_date, session))
+        if ts is None:
+            continue
+        ny = ts.astimezone(MARKET_TZ)
+        hour = ny.hour + ny.minute / 60
+        if ny.date().isoformat() == snapshot_date and WELL_TIMED_FROM <= hour <= WELL_TIMED_TO:
+            candidates.append((abs(hour - 16.0), session))
+    if candidates:
+        return min(candidates)[1], True
+    for session in SESSION_PREFERENCE:
+        if session in sessions:
+            return session, False
+    return None, False
+
+
+def select_dates_to_score(sessions_by_date, scored_dates, times=None, rescore_all=False):
     """Pure decision: which days to score now, and from which session.
     Returns [(date_str, session)], oldest first.
 
-    A day is scored from its close snapshot. A day with no close snapshot
-    is scored from its best earlier session (mid, then open) only once a
-    LATER day's snapshots exist -- by then its close is never coming (the
-    fetch failed that evening), whereas the newest day's close may simply
-    not have landed yet, and scoring it early from 'mid' would publish
-    midday prices as if they were the close."""
-    scored_dates = set(scored_dates)
+    WHEN a day is scored: once its close snapshot exists (the day is
+    over), or -- if the close fetch failed -- once a LATER day's
+    snapshots exist. The newest day is never scored before its close has
+    landed, so a half-finished day is not published.
+
+    FROM WHICH snapshot: best_quoted_session -- the one with the best
+    quotes, which is usually not the one labelled "close".
+
+    rescore_all=True returns every day, scored or not (used once after a
+    change to the session rule)."""
+    scored_dates = set() if rescore_all else set(scored_dates)
+    times = times or {}
     newest = max(sessions_by_date) if sessions_by_date else None
     chosen = []
     for snapshot_date in sorted(sessions_by_date):
         if snapshot_date in scored_dates:
             continue
         sessions = sessions_by_date[snapshot_date]
-        if "close" in sessions:
-            chosen.append((snapshot_date, "close"))
-        elif snapshot_date != newest:
-            for session in SESSION_PREFERENCE[1:]:
-                if session in sessions:
-                    chosen.append((snapshot_date, session))
-                    break
+        if "close" not in sessions and snapshot_date == newest:
+            continue
+        session, _well_timed = best_quoted_session(snapshot_date, sessions, times)
+        if session is not None:
+            chosen.append((snapshot_date, session))
     return chosen
 
 
@@ -223,7 +278,7 @@ def scored_dates():
     return {f.stem for f in SIGNALS_DIR.glob("*.csv")} if SIGNALS_DIR.exists() else set()
 
 
-def run_merge_and_score():
+def run_merge_and_score(rescore_all=False):
     print("Pulling latest from GitHub...")
     print(git_pull())
 
@@ -235,7 +290,8 @@ def run_merge_and_score():
         print(f"Published IV history for {len(published)} previously scored day(s)")
     print(f"Loaded IV history for {iv_history.load_into_db()} day(s)")
 
-    todo = select_dates_to_score(snapshot_sessions(), scored_dates())
+    times = capture_times()
+    todo = select_dates_to_score(snapshot_sessions(), scored_dates(), times, rescore_all=rescore_all)
     if not todo:
         print("Every day with a snapshot is already scored -- nothing to do")
         status = "no_changes"
@@ -248,11 +304,14 @@ def run_merge_and_score():
     for target_date, session in todo:
         try:
             merged = merge_snapshot_file(target_date, session)
-            rows, used_session = get_latest_snapshot_rows(target_date)
+            rows = get_snapshot_rows(target_date, session)
             if not rows:
                 raise RuntimeError(f"snapshot file for the '{session}' session has no rows")
-            note = "" if used_session == "close" else "  (NO CLOSE SNAPSHOT that day -- using an earlier session)"
-            print(f"Scoring {len(rows)} contracts from {target_date}'s '{used_session}' session "
+            ts = times.get((target_date, session))
+            captured = ts.astimezone(MARKET_TZ).strftime("%a %H:%M New York") if ts else "time unknown"
+            well_timed = best_quoted_session(target_date, {session}, times)[1]
+            note = "" if well_timed else "  (NOT captured near market hours -- quotes will be thinner)"
+            print(f"Scoring {len(rows)} contracts from {target_date}'s '{session}' snapshot, captured {captured} "
                   f"({merged} rows newly merged)...{note}")
             signals = compute_signals(rows, target_date)
             if signals.empty:
@@ -283,7 +342,7 @@ def run_merge_and_score():
 
 if __name__ == "__main__":
     init_db()
-    result = run_merge_and_score()
+    result = run_merge_and_score(rescore_all="--rescore-all" in sys.argv[1:])
     print(result)
     if result["failed"]:
         sys.exit(1)
