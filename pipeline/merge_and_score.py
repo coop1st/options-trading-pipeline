@@ -1,29 +1,36 @@
 """
-Local nightly merge + compute (component C). Runs on the user's own PC
-whenever it's next on overnight -- not scheduled via GitHub Actions or a
-cloud routine.
+Merge + score (component C). Runs unattended in GitHub Actions straight
+after each close snapshot lands (.github/workflows/score-and-screen.yml),
+and still runs by hand on the PC as a fallback.
 
-1. git pull to get the day's raw snapshots.
-2. Upsert every not-yet-merged data/github_sync/options_snapshots/*.csv
-   into data/db/options.db (tracked via merge_log so re-running is a
-   harmless no-op, mirroring Projects/Stocks/pipeline/pull_github_updates.py's
-   convention).
-3. Compute Greeks, liquidity flags, and IV/skew reads for today's most
-   complete snapshot session.
-4. Write data/github_sync/signals/{date}.csv and commit + push.
+1. git pull to get the latest raw snapshots.
+2. Load the published IV/skew history (data/github_sync/iv_history/) into
+   the database, so a machine starting from an empty database -- a cloud
+   runner -- has everything scoring needs.
+3. Work out every trading day that has a snapshot but no signals file yet
+   (not just the newest), and for each, oldest first: merge that day's
+   snapshot into the database, compute Greeks, liquidity flags and IV/skew
+   reads, write data/github_sync/signals/{date}.csv and that day's
+   iv_history file.
+4. Commit + push.
+
+Scoring every unscored day -- rather than only the newest -- is what
+stops a missed night from losing that day for good: the next run picks
+it up. (Before 2026-11-16 only the newest day was scored, and two thirds
+of all trading days were lost.)
 
 Run from the repo root: `python pipeline/merge_and_score.py`
 """
-import subprocess
+import sys
 from datetime import date
 
 import pandas as pd
 
+import iv_history
 from config import MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, RISK_FREE_RATE, SKEW_DELTA_TARGET
 from db import (
     get_atm_iv_history,
     get_latest_snapshot_rows,
-    get_most_recent_snapshot_date,
     init_db,
     is_merged,
     mark_merged,
@@ -32,40 +39,67 @@ from db import (
     upsert_skew_history,
 )
 from greeks import compute_greeks
+from publish import commit_and_push, git_pull
 
 SNAPSHOTS_DIR = PROJECT_DIR / "data" / "github_sync" / "options_snapshots"
 SIGNALS_DIR = PROJECT_DIR / "data" / "github_sync" / "signals"
+SESSION_PREFERENCE = ("close", "mid", "open")
 
 
-def git_pull():
-    result = subprocess.run(
-        ["git", "pull"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=120,
-    )
-    if result.returncode != 0:
-        raise RuntimeError(f"git pull failed: {result.stderr}")
-    return result.stdout.strip()
+def snapshot_sessions():
+    """{date_str: set of sessions} for every snapshot CSV in the repo."""
+    sessions = {}
+    if SNAPSHOTS_DIR.exists():
+        for f in SNAPSHOTS_DIR.glob("*.csv"):
+            stem_date, session = f.stem.rsplit("_", 1)
+            sessions.setdefault(stem_date, set()).add(session)
+    return sessions
 
 
-def merge_new_snapshots():
-    if not SNAPSHOTS_DIR.exists():
-        return {"files": 0, "rows": 0}
+def select_dates_to_score(sessions_by_date, scored_dates):
+    """Pure decision: which days to score now, and from which session.
+    Returns [(date_str, session)], oldest first.
 
-    merged_files, total_rows = 0, 0
-    for f in sorted(SNAPSHOTS_DIR.glob("*.csv")):
-        if is_merged(f.name):
+    A day is scored from its close snapshot. A day with no close snapshot
+    is scored from its best earlier session (mid, then open) only once a
+    LATER day's snapshots exist -- by then its close is never coming (the
+    fetch failed that evening), whereas the newest day's close may simply
+    not have landed yet, and scoring it early from 'mid' would publish
+    midday prices as if they were the close."""
+    scored_dates = set(scored_dates)
+    newest = max(sessions_by_date) if sessions_by_date else None
+    chosen = []
+    for snapshot_date in sorted(sessions_by_date):
+        if snapshot_date in scored_dates:
             continue
-        df = pd.read_csv(f)
-        if df.empty:
-            mark_merged(f.name, 0)
-            continue
-        stem_date, session = f.stem.rsplit("_", 1)
-        df["snapshot_date"] = stem_date
-        df["session"] = session
-        upsert_options_chain(df.to_dict("records"))
-        mark_merged(f.name, len(df))
-        merged_files += 1
-        total_rows += len(df)
-    return {"files": merged_files, "rows": total_rows}
+        sessions = sessions_by_date[snapshot_date]
+        if "close" in sessions:
+            chosen.append((snapshot_date, "close"))
+        elif snapshot_date != newest:
+            for session in SESSION_PREFERENCE[1:]:
+                if session in sessions:
+                    chosen.append((snapshot_date, session))
+                    break
+    return chosen
+
+
+def merge_snapshot_file(snapshot_date, session):
+    """Upserts one snapshot CSV into the database (tracked via merge_log,
+    so re-running is a harmless no-op). Only the files a run actually
+    needs are merged -- the database is a working area, not an archive;
+    the snapshot CSVs in the repo are the record. Returns rows merged."""
+    f = SNAPSHOTS_DIR / f"{snapshot_date}_{session}.csv"
+    if is_merged(f.name):
+        return 0
+    df = pd.read_csv(f)
+    if df.empty:
+        mark_merged(f.name, 0)
+        return 0
+    df["snapshot_date"] = snapshot_date
+    df["session"] = session
+    upsert_options_chain(df.to_dict("records"))
+    mark_merged(f.name, len(df))
+    return len(df)
 
 
 def _atm_iv(group, underlying_price):
@@ -185,50 +219,71 @@ def compute_signals(rows, snapshot_date):
     return signals[out_cols].sort_values(["symbol", "expiration", "type", "strike"])
 
 
-def commit_and_push(paths, message):
-    paths = [str(p) for p in paths]
-    subprocess.run(["git", "add", *paths], cwd=PROJECT_DIR, check=True, timeout=60)
-    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_DIR, timeout=30)
-    if diff.returncode == 0:
-        return "no_changes"
-    subprocess.run(["git", "commit", "-m", message], cwd=PROJECT_DIR, check=True, timeout=60)
-    subprocess.run(["git", "push"], cwd=PROJECT_DIR, check=True, timeout=120)
-    return "pushed"
+def scored_dates():
+    return {f.stem for f in SIGNALS_DIR.glob("*.csv")} if SIGNALS_DIR.exists() else set()
 
 
 def run_merge_and_score():
     print("Pulling latest from GitHub...")
     print(git_pull())
 
-    print("Merging new snapshot files...")
-    merge_result = merge_new_snapshots()
-    print(f"Merged {merge_result['rows']} rows from {merge_result['files']} new file(s)")
+    # Days scored on this machine before iv_history/ existed get their
+    # file published; then everything published is loaded, so both the PC
+    # and a fresh cloud runner score against the same history.
+    published = iv_history.export_missing()
+    if published:
+        print(f"Published IV history for {len(published)} previously scored day(s)")
+    print(f"Loaded IV history for {iv_history.load_into_db()} day(s)")
 
-    target_date = get_most_recent_snapshot_date()
-    if target_date is None:
-        print("No snapshot rows merged yet -- nothing to score")
-        return {"status": "no_data", "date": None}
-
-    rows, session = get_latest_snapshot_rows(target_date)
-    if not rows:
-        # Shouldn't happen (target_date came from options_chains itself),
-        # but keep the guard for safety/symmetry with the original check.
-        print(f"No snapshot rows for {target_date} yet -- nothing to score")
-        return {"status": "no_data", "date": target_date}
-
-    print(f"Scoring {len(rows)} contracts from {target_date}'s '{session}' session...")
-    signals = compute_signals(rows, target_date)
+    todo = select_dates_to_score(snapshot_sessions(), scored_dates())
+    if not todo:
+        print("Every day with a snapshot is already scored -- nothing to do")
+        status = "no_changes"
+        if published:
+            status = commit_and_push([iv_history.IV_HISTORY_DIR], "IV history: publish previously scored days")
+        return {"status": status, "scored": [], "failed": []}
 
     SIGNALS_DIR.mkdir(parents=True, exist_ok=True)
-    out_path = SIGNALS_DIR / f"{target_date}.csv"
-    signals.to_csv(out_path, index=False)
-    print(f"Wrote {len(signals)} signal rows to {out_path}")
+    scored, failed, out_paths = [], [], []
+    for target_date, session in todo:
+        try:
+            merged = merge_snapshot_file(target_date, session)
+            rows, used_session = get_latest_snapshot_rows(target_date)
+            if not rows:
+                raise RuntimeError(f"snapshot file for the '{session}' session has no rows")
+            note = "" if used_session == "close" else "  (NO CLOSE SNAPSHOT that day -- using an earlier session)"
+            print(f"Scoring {len(rows)} contracts from {target_date}'s '{used_session}' session "
+                  f"({merged} rows newly merged)...{note}")
+            signals = compute_signals(rows, target_date)
+            if signals.empty:
+                raise RuntimeError("no contract passed the liquidity filter -- snapshot looks broken")
+            out_path = SIGNALS_DIR / f"{target_date}.csv"
+            signals.to_csv(out_path, index=False)
+            out_paths.append(out_path)
+            iv_history.export_date(target_date)
+            scored.append((target_date, len(signals)))
+            print(f"Wrote {len(signals)} signal rows to {out_path}")
+        except Exception as exc:
+            # One bad day must not block the others; it stays unscored and
+            # is retried on the next run. The run still exits non-zero so
+            # the failure is visible (a failed GitHub Actions run emails).
+            failed.append(target_date)
+            print(f"FAILED to score {target_date}: {exc}")
 
-    status = commit_and_push([out_path], f"Options signals: {target_date} ({len(signals)} contracts)")
+    status = "no_changes"
+    if scored:
+        if len(scored) == 1:
+            message = f"Options signals: {scored[0][0]} ({scored[0][1]} contracts)"
+        else:
+            message = f"Options signals: {len(scored)} days, {scored[0][0]} to {scored[-1][0]}"
+        status = commit_and_push(out_paths + [iv_history.IV_HISTORY_DIR], message)
     print(f"Publish status: {status}")
-    return {"status": status, "date": target_date, "rows": len(signals)}
+    return {"status": status, "scored": [d for d, _ in scored], "failed": failed}
 
 
 if __name__ == "__main__":
     init_db()
-    print(run_merge_and_score())
+    result = run_merge_and_score()
+    print(result)
+    if result["failed"]:
+        sys.exit(1)

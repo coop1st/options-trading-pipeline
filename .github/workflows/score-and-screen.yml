@@ -1,0 +1,69 @@
+name: Score and screen
+
+# Runs entirely in the cloud -- no local machine needed. Turns the day's
+# close snapshot into the signals file and the recommendation ledger that
+# the nightly email routine reads. Until 2026-11-16 these two scripts ran
+# only by hand on the owner's PC, and two thirds of all trading days were
+# lost because nobody ran them in time.
+#
+# Self-healing by design: merge_and_score.py scores EVERY day that has a
+# snapshot but no signals file, not just the newest, so if a run fails or
+# is skipped, the next one picks the missed day up.
+#
+# Triggers:
+# - after every "Options snapshot fetch" run (the close run is the one
+#   that matters; after open/mid there is nothing new to score and the
+#   job ends in under a minute). Chained rather than on its own clock
+#   because GitHub starts scheduled jobs hours late.
+# - two backup schedules, in case the chained trigger is ever missed.
+# - by hand.
+
+on:
+  workflow_run:
+    workflows: ["Options snapshot fetch"]
+    types: [completed]
+  schedule:
+    - cron: "15 2 * * 2-6"
+    - cron: "15 8 * * 2-6"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never two at once: both would score the same days and race to push.
+concurrency:
+  group: score-and-screen
+  cancel-in-progress: false
+
+jobs:
+  score:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r pipeline/requirements.txt
+
+      - name: Configure git identity for the commit_and_push steps
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Check the scoring logic
+        run: python pipeline/verify_score_all_days.py
+
+      # Exits non-zero if any day failed to score (after still scoring
+      # and publishing the others), so the failure shows up as a failed
+      # run rather than passing silently.
+      - name: Merge and score every unscored day
+        run: python pipeline/merge_and_score.py
+
+      # Still screen the newest day if an older day failed above.
+      - name: Screen trades for the newest day
+        if: success() || failure()
+        run: python pipeline/screen_trades.py

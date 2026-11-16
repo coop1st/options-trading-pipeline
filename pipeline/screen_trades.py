@@ -5,15 +5,21 @@ today's signals + the two Stocks ledgers, build every family's
 candidates, score and rank them, attach a position-sizing suggestion,
 write the recommendation ledger, commit + push.
 
-Run from the repo root: `python pipeline/screen_trades.py`
+Runs unattended in GitHub Actions straight after merge_and_score.py
+(.github/workflows/score-and-screen.yml), and by hand on the PC as a
+fallback. Screens the newest signals date only, and only once: a day
+already in the ledger is left alone unless --force is passed.
+
+Run from the repo root: `python pipeline/screen_trades.py [--force]`
 """
 import csv
-import subprocess
-from pathlib import Path
+import sys
 
 import pandas as pd
 
+import iv_history
 from atr import refresh_atr_if_stale
+from publish import commit_and_push, git_pull
 from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
     CALENDAR_MIN_FRONT_DAYS, CALENDAR_SHORT_DISCOUNT, CONDOR_DELTA_MAX, CONDOR_DELTA_MIN,
@@ -56,16 +62,20 @@ LABEL_COLS = ["selection_label"]
 OUTCOME_COLS = ["outcome_status", "outcome_date", "realized_pct"]
 
 
-def git_pull():
-    result = subprocess.run(["git", "pull"], cwd=PROJECT_DIR, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        raise RuntimeError(f"git pull failed: {result.stderr}")
-    return result.stdout.strip()
-
-
 def latest_signals_path():
     files = sorted(SIGNALS_DIR.glob("*.csv")) if SIGNALS_DIR.exists() else []
     return files[-1] if files else None
+
+
+def already_screened(snapshot_date):
+    """True if the ledger already holds trades for snapshot_date. The
+    cloud job runs several times a day (after every snapshot, plus backup
+    schedules); without this each run would rebuild the same day's
+    recommendations, and could change them after the email went out."""
+    if not LEDGER_PATH.exists():
+        return False
+    with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
+        return any(r["trade_id"].startswith(f"{snapshot_date}-") for r in csv.DictReader(f))
 
 
 def _other_expirations_atm_iv(signals, symbol, this_expiration):
@@ -210,30 +220,27 @@ def build_units_reminder(signals):
     }
 
 
-def commit_and_push(paths, message):
-    paths = [str(p) for p in paths]
-    subprocess.run(["git", "add", *paths], cwd=PROJECT_DIR, check=True, timeout=60)
-    diff = subprocess.run(["git", "diff", "--cached", "--quiet"], cwd=PROJECT_DIR, timeout=30)
-    if diff.returncode == 0:
-        return "no_changes"
-    subprocess.run(["git", "commit", "-m", message], cwd=PROJECT_DIR, check=True, timeout=60)
-    subprocess.run(["git", "push"], cwd=PROJECT_DIR, check=True, timeout=120)
-    return "pushed"
-
-
-def run_screen_trades():
+def run_screen_trades(force=False):
     print("Pulling latest from GitHub...")
     print(git_pull())
-
-    refresh_atr_if_stale()
 
     signals_path = latest_signals_path()
     if signals_path is None:
         print("No signals file found -- nothing to screen")
         return {"status": "no_data"}
 
-    signals = pd.read_csv(signals_path)
     snapshot_date = signals_path.stem
+    if already_screened(snapshot_date) and not force:
+        print(f"{snapshot_date} is already in the recommendation ledger -- nothing to do "
+              f"(pass --force to rebuild that day's trades)")
+        return {"status": "already_screened", "date": snapshot_date}
+
+    # The calendar gate reads the term-structure history; load the
+    # published copy so a machine with an empty database has it.
+    print(f"Loaded IV history for {iv_history.load_into_db()} day(s)")
+    refresh_atr_if_stale()
+
+    signals = pd.read_csv(signals_path)
     print(f"Screening {len(signals)} contracts from {snapshot_date}...")
 
     bias = fetch_directional_bias()
@@ -257,4 +264,4 @@ def run_screen_trades():
 
 if __name__ == "__main__":
     init_db()
-    print(run_screen_trades())
+    print(run_screen_trades(force="--force" in sys.argv[1:]))

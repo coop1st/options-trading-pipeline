@@ -2,9 +2,9 @@ name: Options snapshot fetch
 
 # Runs entirely in the cloud -- no local machine needed. Fetches options
 # chains for the current watchlist 3x per trading day (open/mid/close) and
-# commits the result as a small dated CSV. The local merge script
-# (pipeline/merge_and_score.py) picks this up later, whenever that machine
-# is next on.
+# commits the result as a small dated CSV. When this workflow finishes,
+# score-and-screen.yml runs and turns the close snapshot into the signals
+# file and the recommendation ledger.
 
 on:
   schedule:

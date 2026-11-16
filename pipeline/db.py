@@ -2,7 +2,7 @@
 import sqlite3
 from contextlib import contextmanager
 
-from config import DB_PATH
+import config
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS options_chains (
@@ -59,8 +59,10 @@ CREATE TABLE IF NOT EXISTS atr_by_symbol (
 
 @contextmanager
 def get_connection():
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # Read through the module (not a from-import) so a verify script can
+    # point config.DB_PATH at a throwaway database.
+    config.DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(config.DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     try:
         yield conn
@@ -177,6 +179,36 @@ def upsert_skew_history(rows):
             """,
             rows,
         )
+
+
+def get_history_dates():
+    """Every snapshot_date with at least one row in either history table."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT snapshot_date FROM atm_iv_history UNION SELECT snapshot_date FROM skew_history"
+        ).fetchall()
+        return sorted(r[0] for r in rows)
+
+
+def get_atm_iv_rows_for_date(snapshot_date):
+    """{(symbol, expiration): atm_iv} for one date."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT symbol, expiration, atm_iv FROM atm_iv_history WHERE snapshot_date = ?",
+            (snapshot_date,),
+        ).fetchall()
+        return {(r[0], r[1]): r[2] for r in rows}
+
+
+def get_skew_rows_for_date(snapshot_date):
+    """{(symbol, expiration): (skew_put_pct_of_atm, skew_call_pct_of_atm)} for one date."""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT symbol, expiration, skew_put_pct_of_atm, skew_call_pct_of_atm "
+            "FROM skew_history WHERE snapshot_date = ?",
+            (snapshot_date,),
+        ).fetchall()
+        return {(r[0], r[1]): (r[2], r[3]) for r in rows}
 
 
 def get_atr_row(symbol):
