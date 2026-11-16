@@ -20,6 +20,7 @@ import pandas as pd
 import iv_history
 from atr import refresh_atr_if_stale
 from pricing import as_trade_prices
+from track_outcomes import STRUCTURE_TYPE, _credit_received, _debit_paid
 from publish import commit_and_push, git_pull
 from config import (
     ACCOUNT_EQUITY, CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
@@ -115,9 +116,35 @@ def build_all_candidates(signals, snapshot_date, bias):
     return candidates
 
 
+def has_positive_net_entry(candidate):
+    """True if the trade's legs, at the prices it was built from, give the
+    net credit (or debit) its strategy is defined by -- a short calendar
+    or condor that actually takes in a credit, a long calendar or double
+    diagonal that actually costs a debit.
+
+    track_outcomes.py measures every result as a percentage of that net
+    credit/debit, so a "short calendar" that costs money to put on, or a
+    double diagonal put on for a net credit, has no defined result and
+    would sit in the ledger as ENTRY_NOT_PRICEABLE. Such a candidate is
+    not recommended. The project's own consistency rule, not a book rule;
+    whether a credit double diagonal should instead be tracked as a
+    credit trade is an open design question."""
+    structure = STRUCTURE_TYPE.get(candidate["strategy"])
+    if structure is None:
+        return True
+    legs = [{"leg_role": l["leg_role"], "entry_price": l["last_price"]} for l in candidate["legs"]]
+    basis = _credit_received(legs) if structure == "credit" else _debit_paid(legs)
+    return basis > 0
+
+
 def score_and_rank(candidates):
     scored = []
+    dropped = sum(1 for c in candidates if not has_positive_net_entry(c))
+    if dropped:
+        print(f"{dropped} candidate(s) left out: no net {'credit/debit'} at the entry prices")
     for c in candidates:
+        if not has_positive_net_entry(c):
+            continue
         # A trade whose one-contract max loss already exceeds the per-trade
         # risk limit sizes to 0 contracts -- not actionable, so it must not
         # take a top-N slot (user, 2026-10-17)

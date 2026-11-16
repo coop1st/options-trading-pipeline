@@ -215,6 +215,20 @@ def main():
     check("screening leaves out a contract with no bid",
           list(pricing.as_trade_prices(no_bid, "2026-10-23")["contract_symbol"]) == [])
 
+    # A trade is only recommended if its legs give the net credit/debit
+    # its strategy is defined by (real cases from 2026-11-16).
+    import screen_trades
+    cand = lambda strategy, legs: {"strategy": strategy, "legs": [{"leg_role": r, "last_price": p} for r, p in legs]}
+    check("a short calendar that would cost money to put on is not recommended (HDB: 1.75 in, 1.875 out)",
+          not screen_trades.has_positive_net_entry(cand("short calendar", [("short call", 1.75), ("long call", 1.875)])))
+    check("a short calendar that takes in a credit is",
+          screen_trades.has_positive_net_entry(cand("short calendar", [("short call", 2.145), ("long call", 1.07)])))
+    check("a double diagonal put on for a net credit is not recommended (VXX)",
+          not screen_trades.has_positive_net_entry(cand("double diagonal", [("short call", 0.245), ("long call", 0.27),
+                                                                              ("short put", 0.25), ("long put", 0.055)])))
+    check("a long calendar that costs a debit is",
+          screen_trades.has_positive_net_entry(cand("long calendar", [("short put", 3.10), ("long put", 3.80)])))
+
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
         sys.exit(1)
