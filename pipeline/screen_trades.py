@@ -75,7 +75,20 @@ def already_screened(snapshot_date):
     if not LEDGER_PATH.exists():
         return False
     with open(LEDGER_PATH, newline="", encoding="utf-8") as f:
-        return any(r["trade_id"].startswith(f"{snapshot_date}-") for r in csv.DictReader(f))
+        # The rec: column, not the trade rows: a day on which no candidate
+        # cleared the gates is still a screened day.
+        return f"rec:{snapshot_date}" in (csv.DictReader(f).fieldnames or [])
+
+
+def traded_that_day(signals, snapshot_date):
+    """Only the contracts whose last trade happened on snapshot_date.
+    A trade is only ever built from these: a leg priced off a stale print
+    from an earlier day gives a net entry price that never existed, and
+    track_outcomes.py would mark the trade ENTRY_NOT_TRADED anyway (see
+    track_outcomes.same_day_prices). The project's own data-quality rule,
+    not a book rule."""
+    traded_on = signals["last_trade_date"].astype(str).str[:10]
+    return signals[traded_on == snapshot_date]
 
 
 def _other_expirations_atm_iv(signals, symbol, this_expiration):
@@ -138,7 +151,9 @@ def suggested_contracts(candidate):
 
 def write_ledger(ranked, snapshot_date, company_names):
     rows = []
-    date_cols_seen = set()
+    # Always present, even with zero trades, so "screened, nothing passed"
+    # is distinguishable from "not screened yet".
+    date_cols_seen = {f"rec:{snapshot_date}"}
     for rank, (score, breakdown, candidate) in enumerate(ranked, start=1):
         trade_id = f"{snapshot_date}-{candidate['symbol']}-{rank}"
         contracts = suggested_contracts(candidate)
@@ -240,8 +255,10 @@ def run_screen_trades(force=False):
     print(f"Loaded IV history for {iv_history.load_into_db()} day(s)")
     refresh_atr_if_stale()
 
-    signals = pd.read_csv(signals_path)
-    print(f"Screening {len(signals)} contracts from {snapshot_date}...")
+    all_signals = pd.read_csv(signals_path)
+    signals = traded_that_day(all_signals, snapshot_date)
+    print(f"Screening {len(signals)} contracts from {snapshot_date} "
+          f"({len(all_signals) - len(signals)} of {len(all_signals)} left out: no trade that day)...")
 
     bias = fetch_directional_bias()
     candidates = build_all_candidates(signals, snapshot_date, bias)

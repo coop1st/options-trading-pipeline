@@ -153,6 +153,43 @@ def main():
                                   date(2026, 5, 12), entry_date="2026-05-10")
     check("entry-day snapshot itself ignored -> OPEN", status == "OPEN")
 
+    # Same-day-trades-only pricing (audit 2026-11-16). Rebuilds the real
+    # DECK case: on 15 Oct the long leg traded (2.80) but the short leg
+    # still showed 14 Oct's 3.58. Priced naively that is a -286% "max
+    # loss"; under the rule the day is simply not priced.
+    import pandas as pd
+    from track_outcomes import entry_was_traded, same_day_prices
+
+    short_c, long_c = "DECK261030P00080000", "DECK261120P00080000"
+    day = lambda rows: pd.DataFrame(rows, columns=["contract_symbol", "last_price", "last_trade_date"])
+    files = {
+        "2026-10-14": day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 4.00, "2026-10-14 18:02:44+00:00")]),
+        "2026-10-15": day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 2.80, "2026-10-15 15:10:09+00:00")]),
+        "2026-10-23": day([(short_c, 1.25, "2026-10-23 17:20:00+00:00"), (long_c, 2.95, "2026-10-23 19:40:00+00:00")]),
+    }
+    fresh = {d: same_day_prices(df, d) for d, df in files.items()}
+    check("a price from an earlier day's trade is dropped", short_c not in fresh["2026-10-15"])
+    check("a price from that day's trade is kept", fresh["2026-10-15"] == {long_c: 2.80})
+    deck_legs = [_leg("short put", 3.58, short_c), _leg("long put", 4.00, long_c)]
+    check("entry counts as traded when every leg traded that day", entry_was_traded(deck_legs, fresh, "2026-10-14"))
+    status, out_date, pct = evaluate_trade("long calendar", deck_legs, fresh, date(2026, 10, 26), entry_date="2026-10-14")
+    check("the stale-leg day is skipped; the result comes from the next fully traded day",
+          status == "HIT_TARGET" and out_date == "2026-10-23")
+    naive = {d: dict(zip(df["contract_symbol"], df["last_price"])) for d, df in files.items()}
+    status, out_date, pct = evaluate_trade("long calendar", deck_legs, naive, date(2026, 10, 26), entry_date="2026-10-14")
+    check("(control) without the rule the same data gives the false max loss on 15 Oct",
+          status == "HIT_MAX_LOSS" and out_date == "2026-10-15")
+    stale_entry = {"2026-10-14": {long_c: 4.00}}
+    check("entry is not traded when a leg has no same-day price", not entry_was_traded(deck_legs, stale_entry, "2026-10-14"))
+    holiday = day([(short_c, 3.58, "2026-10-14 19:55:01+00:00"), (long_c, 4.00, "2026-10-14 18:02:44+00:00")])
+    check("a non-market-day copy prices nothing", same_day_prices(holiday, "2026-10-17") == {})
+
+    import screen_trades
+    sig = pd.DataFrame({"contract_symbol": [short_c, long_c],
+                        "last_trade_date": ["2026-10-14 19:55:01+00:00", "2026-10-15 15:10:09+00:00"]})
+    check("screening only sees contracts traded that day",
+          list(screen_trades.traded_that_day(sig, "2026-10-15")["contract_symbol"]) == [long_c])
+
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
         sys.exit(1)

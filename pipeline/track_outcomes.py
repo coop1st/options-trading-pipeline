@@ -31,8 +31,12 @@ LEDGER_PATH = PROJECT_DIR / "data" / "github_sync" / "options_ledger" / "options
 
 TERMINAL_STATUSES = {
     "HIT_TARGET", "HIT_MAX_LOSS", "TIME_EXIT", "EXPIRED_PROFIT", "EXPIRED_LOSS",
-    "UNRESOLVED_AT_EXPIRATION",
+    "UNRESOLVED_AT_EXPIRATION", "ENTRY_NOT_TRADED",
 }
+# ENTRY_NOT_TRADED: at least one leg's entry price was not from a trade on
+# the entry day (a stale print carried over from an earlier day), so the
+# trade's net entry price was never a real, same-moment price and no
+# result can honestly be computed from it. Terminal, never scored.
 SCOREABLE_STATUSES = {"HIT_TARGET", "HIT_MAX_LOSS", "TIME_EXIT", "EXPIRED_PROFIT", "EXPIRED_LOSS"}
 
 STRUCTURE_TYPE = {
@@ -272,15 +276,42 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     return "OPEN", None, None
 
 
+def same_day_prices(df, snapshot_date):
+    """{contract_symbol: last_price} for only the contracts whose last
+    trade happened ON snapshot_date.
+
+    A snapshot's last_price is the contract's most recent trade, whenever
+    that was -- for roughly a quarter of the contracts in a signals file
+    it is a print from an earlier day. Valuing a multi-leg trade with one
+    leg's price from today and another's from yesterday produces results
+    that never existed in the market (audit 2026-11-16: the DECK long
+    calendar's "-286% max loss" was a fresh 2.80 minus a day-old 3.58).
+    A contract with a stale print is therefore treated as not priced that
+    day; evaluate_trade already skips any day on which a leg is missing.
+    This also makes a snapshot taken on a non-market day (a weekend or
+    holiday copy, where nothing traded) inert.
+
+    This is the project's own data-quality rule, not a book rule."""
+    traded_on = df["last_trade_date"].astype(str).str[:10]
+    fresh = df[traded_on == snapshot_date]
+    return dict(zip(fresh["contract_symbol"], fresh["last_price"]))
+
+
+def entry_was_traded(legs, signals_by_date, entry_date):
+    """True if every leg has a same-day price in the entry day's file."""
+    prices = signals_by_date.get(entry_date, {})
+    return all(l["contract_symbol"] in prices for l in legs)
+
+
 def _load_all_signals():
     """{date_str: {contract_symbol: last_price}} for every signals.csv
-    currently in the repo."""
+    currently in the repo, same-day trades only (see same_day_prices)."""
     result = {}
     if not SIGNALS_DIR.exists():
         return result
     for f in sorted(SIGNALS_DIR.glob("*.csv")):
-        df = pd.read_csv(f, usecols=["contract_symbol", "last_price"])
-        result[f.stem] = dict(zip(df["contract_symbol"], df["last_price"]))
+        df = pd.read_csv(f, usecols=["contract_symbol", "last_price", "last_trade_date"])
+        result[f.stem] = same_day_prices(df, f.stem)
     return result
 
 
@@ -365,8 +396,11 @@ def run_track_outcomes():
             if not legs:
                 print(f"{trade_id}: no recoverable entry legs -- skipping")
                 continue
-            status, outcome_date, realized_pct = evaluate_trade(strategy, legs, signals_by_date, today,
-                                                             entry_date=entry_date)
+            if entry_date in signals_by_date and not entry_was_traded(legs, signals_by_date, entry_date):
+                status, outcome_date, realized_pct = "ENTRY_NOT_TRADED", entry_date, None
+            else:
+                status, outcome_date, realized_pct = evaluate_trade(strategy, legs, signals_by_date, today,
+                                                                    entry_date=entry_date)
         except Exception as exc:
             print(f"{trade_id}: SKIPPED ({exc})")
             continue
