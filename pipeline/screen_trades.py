@@ -129,8 +129,8 @@ def has_positive_net_entry(candidate):
     not recommended. The project's own consistency rule, not a book rule;
     whether a credit double diagonal should instead be tracked as a
     credit trade is an open design question."""
-    structure = STRUCTURE_TYPE.get(candidate["strategy"])
-    if structure is None:
+    structure = STRUCTURE_TYPE.get(candidate.get("strategy"))
+    if structure is None or not candidate.get("legs"):
         return True
     legs = [{"leg_role": l["leg_role"], "entry_price": l["last_price"]} for l in candidate["legs"]]
     basis = _credit_received(legs) if structure == "credit" else _debit_paid(legs)
