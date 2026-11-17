@@ -220,7 +220,10 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     leg_role, entry_price, contract_symbol, expiration, strike.
     signals_by_date: {date_str: {contract_symbol: last_price}}. Returns
     (status, outcome_date, realized_pct); realized_pct is None for OPEN
-    and UNRESOLVED_AT_EXPIRATION. evaluator_overrides (optional dict of
+    and UNRESOLVED_AT_EXPIRATION. An EXPIRED_* result is only ever taken
+    from prices on the expiration day itself; if expiration passes
+    without one, the trade is UNRESOLVED_AT_EXPIRATION (dated at its
+    expiration) and is never scored. evaluator_overrides (optional dict of
     kwargs) is forwarded to the evaluator -- meaningful only for
     "long call"/"long put" (see _evaluate_directional_long); passing it
     for any other strategy will raise, since those evaluators take no
@@ -241,8 +244,6 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     structure_type = STRUCTURE_TYPE[strategy]
     overrides = evaluator_overrides or {}
 
-    last_fully_priced_date = None
-    last_price_lookup = None
     for snapshot_date in sorted(signals_by_date):
         if entry_date is not None and snapshot_date <= entry_date:
             continue
@@ -253,8 +254,6 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
         if not all(l["contract_symbol"] in prices for l in legs):
             continue
         price_lookup = {l["contract_symbol"]: prices[l["contract_symbol"]] for l in legs}
-        last_fully_priced_date = snapshot_date
-        last_price_lookup = price_lookup
 
         result = evaluator(legs, price_lookup, dte, width, **overrides)
         if result is not None:
@@ -267,14 +266,17 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
             status, realized_pct = result
             return status, snapshot_date, realized_pct
 
-    expiration_has_passed = date.fromisoformat(nearest_expiration) < today
-    if expiration_has_passed:
-        if last_price_lookup is not None:
-            result = _expire(legs, last_price_lookup, structure_type)
-            if result is not None:
-                status, realized_pct = result
-                return status, last_fully_priced_date, realized_pct
-        return "UNRESOLVED_AT_EXPIRATION", today.isoformat(), None
+    # Expiration has passed and every leg was never priced on the
+    # expiration day itself: there is no expiry result to record. Until
+    # 17 Nov 2026 this fell back to the last day all legs HAD a price and
+    # called that EXPIRED_PROFIT / EXPIRED_LOSS -- but that day was 3 to
+    # 43 days before expiry for all six trades it ever applied to (one
+    # iron condor was marked 4 days after entry), so those were early
+    # marks, not results, and they counted in the win rates. Known cost:
+    # a trade that genuinely runs to expiry with a leg that has no bid on
+    # the last day is left unscored rather than counted as a win.
+    if date.fromisoformat(nearest_expiration) < today:
+        return "UNRESOLVED_AT_EXPIRATION", nearest_expiration, None
 
     return "OPEN", None, None
 

@@ -138,6 +138,25 @@ def main():
     status, _, pct = evaluate_trade("vertical put credit spread", vert_legs, {}, date(2026, 7, 1))
     check("no data at all + expiration passed -> UNRESOLVED_AT_EXPIRATION", status == "UNRESOLVED_AT_EXPIRATION" and pct is None)
 
+    # An expiry result needs prices from the expiration day itself. A
+    # price from days earlier is a mark, not a result (17 Nov 2026).
+    # Premium 3.00, price 4.00: neither the 200% target nor the 50% stop.
+    status, out_date, pct = evaluate_trade(
+        "long call", long_call_legs, {"2026-05-20": {"TEST260601C00100000": 4.00}}, date(2026, 7, 1))
+    check("last priced 12 days before expiry, expiry passed -> UNRESOLVED, dated at expiry, no result",
+          status == "UNRESOLVED_AT_EXPIRATION" and out_date == "2026-06-01" and pct is None)
+    status, out_date, pct = evaluate_trade(
+        "long call", long_call_legs, {"2026-05-29": {"TEST260601C00100000": 4.00}}, date(2026, 7, 1))
+    check("last priced 3 days before expiry (the Friday before a Monday expiry) -> still UNRESOLVED",
+          status == "UNRESOLVED_AT_EXPIRATION" and pct is None)
+    status, out_date, pct = evaluate_trade(
+        "long call", long_call_legs, {"2026-06-01": {"TEST260601C00100000": 4.00}}, date(2026, 7, 1))
+    check("priced on the expiration day itself -> EXPIRED_PROFIT from that day's prices",
+          status == "EXPIRED_PROFIT" and out_date == "2026-06-01" and abs(pct - 1 / 3) < 1e-9)
+    status, _, _ = evaluate_trade(
+        "long call", long_call_legs, {"2026-05-20": {"TEST260601C00100000": 4.00}}, date(2026, 5, 25))
+    check("priced earlier, expiry not yet passed -> OPEN", status == "OPEN")
+
     # Still OPEN: expiration (2026-06-01) hasn't passed yet, no data yet.
     status, _, _ = evaluate_trade("vertical put credit spread", vert_legs, {}, date(2026, 4, 1))
     check("no data yet, expiration in the future -> OPEN", status == "OPEN")
