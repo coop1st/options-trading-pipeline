@@ -178,3 +178,23 @@ The owner said "yes, fix the volatility reading". Commit `d1dcc33`.
 - Tracker quirk: when a trade's legs stop being priced before expiry, the tracker records EXPIRED_PROFIT / EXPIRED_LOSS using the last day all legs had a price. 5 of the 6 "expired" trades were last priced 6 to 43 days before expiry (`2026-09-17-^SPX-1` was marked 4 days after entry, 43 days before expiry). These are marks, not expiry results. Owner to decide whether they should count.
 - 12 open trades have new results waiting from the 17 Nov prices; the tracker will pick them up on its next run.
 - The rebuilt list suggests 266, 400 and 800 contracts on three TE long calendars. That is the 100,000 placeholder account meeting very cheap options (same as ABR on 13 Nov).
+
+## Update 5, Tue 17 Nov 2026 (about 23:55 Dublin): "expired" early marks taken out of the results
+
+The owner said "yes, take the expired trades out of the win-rate figures". Commit `0669fae`.
+
+- **Rule now** (`pipeline/track_outcomes.py`, `evaluate_trade`): an EXPIRED_PROFIT / EXPIRED_LOSS result is only taken from prices on the expiration day itself. If expiration passes without every leg priced that day, the trade is UNRESOLVED_AT_EXPIRATION, dated at its expiration, and is never scored.
+- **Six trades reclassified** in the ledger (14 rows, nothing else touched): `2026-09-17-^SPX-1` (iron condor, was +23.5%), `2026-10-02-^SPX-8`, `-12`, `-16` (short calendars, were -3.1%, -2.8%, -4.6%), `2026-10-09-^SPX-13` (short calendar, 0%), `2026-11-03-FRMI-3` (long calendar, 0%). All six had been marked 3 to 43 days before expiry. (Update 4 said five of six; the sixth was 3 days early and is out too.)
+- **Known cost:** a trade that really runs to expiry with a leg that has no bid on the last day stays unscored instead of counting as a win.
+- The tracker then ran (37 trades updated, mostly the 17 Nov ones set to OPEN) and the performance report was rebuilt (`df60341`, 159 scored trades).
+
+| Strategy | Scored before | Winners | Average | Scored now | Winners | Average |
+|---|---|---|---|---|---|---|
+| Iron condor | 22 | 95.5% | +41.1% | 21 | 95.2% | +42.0% |
+| Short calendar | 62 | 71.0% | +10.6% | 68 | 72.1% | +8.9% |
+| Long calendar | 61 | 54.1% | +1.3% | 61 | 54.1% | +3.1% |
+| Double diagonal | 3 | 33.3% | -9.8% | 9 | 77.8% | +12.9% |
+
+The "now" column mixes two things: the six removals, and 17 trades that resolved on the 17 Nov prices (they would have resolved at the tracker's 19:00 UTC run anyway).
+
+**Evidence for open question 2 (calendar exits):** of the 13 and 16 Nov trades, 17 resolved on 17 Nov, one or two trading days after entry: 10 short calendars (5 targets, 5 stops, results from -81% to +45%), 6 double diagonals (all targets) and 1 long calendar (+109%). All but two are on ^SPX.
