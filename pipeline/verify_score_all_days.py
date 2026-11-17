@@ -91,6 +91,54 @@ def verify_select_dates():
           select_dates_to_score({"2026-11-13": all3}, {"2026-11-13"}, times, rescore_all=True) == [("2026-11-13", "open")])
 
 
+def verify_atm_iv():
+    """The ATM IV reading ignores dead strikes and is not set by any one
+    strike on its own."""
+    import pandas as pd
+    from merge_and_score import _atm_iv, live_quote_flags
+
+    def chain(rows):
+        df = pd.DataFrame(rows, columns=["type", "strike", "bid", "ask", "implied_volatility", "last_trade_date"])
+        df["live_quote"] = live_quote_flags(df, "2026-11-17")
+        return df
+
+    today, old = "2026-11-17 19:55:55+00:00", "2025-05-09 19:17:10+00:00"
+    # BABA 15-Jan-2027 as captured on 17 Nov 2026, stock at 86.66
+    baba = chain([
+        ("call", 80.0, 10.95, 11.60, 0.5557, today), ("put", 80.0, 3.70, 3.90, 0.4993, today),
+        ("call", 85.0, 8.10, 8.30, 0.5293, today), ("put", 85.0, 5.70, 6.00, 0.4909, today),
+        ("call", 87.5, 42.15, 43.00, 3.2781, old),
+        ("call", 90.0, 5.65, 5.90, 0.5132, today), ("put", 90.0, 8.30, 8.50, 0.4700, today),
+    ])
+    reading = _atm_iv(baba, 86.66)
+    check("a dead strike with a stale quote does not set the reading (BABA, 17 Nov 2026: was 164%, now about 50%)",
+          reading is not None and 0.45 < reading < 0.56)
+    check("the dead strike is flagged as not live", not baba.loc[baba["strike"] == 87.5, "live_quote"].any())
+
+    one_bad = chain([
+        ("call", 95.0, 6.0, 6.2, 0.30, today), ("call", 100.0, 3.0, 3.2, 2.90, today), ("call", 105.0, 1.4, 1.5, 0.32, today),
+    ])
+    check("one wild strike among three live ones is out-voted by the median", _atm_iv(one_bad, 100.0) == 0.32)
+
+    zero_bid = chain([("call", 100.0, 0.0, 0.05, 0.004, today), ("put", 100.0, 0.0, 0.0, 0.004, today)])
+    check("no live strike -> no reading, rather than a wrong one", _atm_iv(zero_bid, 100.0) is None)
+
+    wide = chain([("call", 100.0, 0.10, 0.90, 0.80, today), ("call", 105.0, 1.0, 1.1, 0.30, today)])
+    check("a wide quote is not read", _atm_iv(wide, 100.0) == 0.30)
+
+    far = chain([("call", 130.0, 1.0, 1.1, 0.30, today)])
+    check("a live strike too far from the money is not used as the ATM reading", _atm_iv(far, 100.0) is None)
+
+    two = chain([("call", 100.0, 3.0, 3.1, 0.30, today), ("put", 100.0, 2.9, 3.0, 0.34, today)])
+    check("call and put at one strike are averaged", abs(_atm_iv(two, 100.0) - 0.32) < 1e-9)
+
+    week_old = chain([("call", 100.0, 3.0, 3.1, 0.30, "2026-11-10 15:00:00+00:00")])
+    older = chain([("call", 100.0, 3.0, 3.1, 0.30, "2026-11-06 15:00:00+00:00")])
+    check("a trade 7 days back still counts as recent", _atm_iv(week_old, 100.0) == 0.30)
+    check("a trade 11 days back does not", _atm_iv(older, 100.0) is None)
+    check("a missing underlying price gives no reading", _atm_iv(two, None) is None)
+
+
 def verify_iv_history_round_trip():
     import db
     import iv_history
@@ -145,6 +193,7 @@ def verify_iv_history_round_trip():
 
 if __name__ == "__main__":
     verify_select_dates()
+    verify_atm_iv()
     verify_iv_history_round_trip()
     print("\nALL OK" if ALL_OK else "\nFAILURES ABOVE")
     sys.exit(0 if ALL_OK else 1)

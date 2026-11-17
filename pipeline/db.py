@@ -136,6 +136,15 @@ def upsert_atm_iv_history(rows):
         )
 
 
+def delete_history_for_date(snapshot_date):
+    """Removes one date's ATM-IV and skew history rows, so re-scoring that
+    date replaces its readings instead of leaving old ones behind."""
+    with get_connection() as conn:
+        conn.execute("DELETE FROM atm_iv_history WHERE snapshot_date = ?", (snapshot_date,))
+        conn.execute("DELETE FROM skew_history WHERE snapshot_date = ?", (snapshot_date,))
+        conn.commit()
+
+
 def get_atm_iv_history(symbol, expiration, before_date, window_days=90):
     with get_connection() as conn:
         rows = conn.execute(

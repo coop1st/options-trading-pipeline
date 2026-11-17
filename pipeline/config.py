@@ -170,3 +170,15 @@ MIN_TRADES_FOR_TUNING_SUGGESTION = 10
 # strategy_rules.py's builders and is out of scope for this sub-project.
 DIRECTIONAL_STOP_PCT_GRID = [0.40, 0.50, 0.60]
 DIRECTIONAL_TARGET_PCT_GRID = [1.5, 1.75, 2.0, 2.25]
+
+# ATM implied-volatility reading (pipeline/merge_and_score.py, _atm_iv).
+# A strike only counts if its quote is live: a real two-sided bid/ask that
+# is not flagged wide, and a trade within ATM_MAX_TRADE_AGE_DAYS calendar
+# days. The reading is the median over the ATM_STRIKES_USED live strikes
+# nearest the underlying price, none further than ATM_MAX_MONEYNESS_GAP
+# from it. All three numbers are this project's own operationalization
+# (added 17 Nov 2026 after BABA's Jan-2027 expiry read 164% from one
+# strike that last traded in May 2025) -- not book numbers.
+ATM_MAX_TRADE_AGE_DAYS = 7
+ATM_STRIKES_USED = 3
+ATM_MAX_MONEYNESS_GAP = 0.15

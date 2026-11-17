@@ -28,8 +28,12 @@ from zoneinfo import ZoneInfo
 import pandas as pd
 
 import iv_history
-from config import MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, RISK_FREE_RATE, SKEW_DELTA_TARGET
+from config import (
+    ATM_MAX_MONEYNESS_GAP, ATM_MAX_TRADE_AGE_DAYS, ATM_STRIKES_USED,
+    MIN_OPEN_INTEREST, MIN_VOLUME, PROJECT_DIR, RISK_FREE_RATE, SKEW_DELTA_TARGET,
+)
 from db import (
+    delete_history_for_date,
     get_atm_iv_history,
     get_snapshot_rows,
     init_db,
@@ -172,15 +176,53 @@ def merge_snapshot_file(snapshot_date, session):
     return len(df)
 
 
+def live_quote_flags(df, snapshot_date):
+    """True for each contract whose implied volatility can be trusted as
+    a reading: a real two-sided quote (bid above zero, ask above bid)
+    that is not wide (the same test as the wide_spread flag: spread over
+    half the ask), a positive implied volatility, and a trade within
+    ATM_MAX_TRADE_AGE_DAYS calendar days of the snapshot.
+
+    The trade-recency test is what catches a dead strike that still
+    shows a quote: on 17 Nov 2026 BABA's 15-Jan-2027 87.5 call showed
+    42.15 / 43.00 with the stock at 86.66 and had last traded in May
+    2025. (Pricing a trade's own legs is a different matter and needs
+    only the bid and ask -- pipeline/pricing.py.)"""
+    bid = pd.to_numeric(df["bid"], errors="coerce")
+    ask = pd.to_numeric(df["ask"], errors="coerce")
+    iv = pd.to_numeric(df["implied_volatility"], errors="coerce")
+    two_sided = (bid > 0) & (ask > bid)
+    not_wide = ((ask - bid) / ask.where(ask > 0)) <= 0.5
+    traded = pd.to_datetime(df["last_trade_date"], errors="coerce", utc=True)
+    as_of = pd.Timestamp(snapshot_date, tz="UTC") + pd.Timedelta(days=1)  # end of the snapshot day
+    recent = (as_of - traded) <= pd.Timedelta(days=ATM_MAX_TRADE_AGE_DAYS + 1)
+    return (two_sided & not_wide.fillna(False) & (iv > 0) & recent.fillna(False)).astype(bool)
+
+
 def _atm_iv(group, underlying_price):
-    """Average of the call and put implied_volatility at the strike
-    closest to underlying_price, for one (symbol, expiration) group."""
-    nearest = group.iloc[(group["strike"] - underlying_price).abs().argsort()[:1]]
+    """The at-the-money implied volatility for one (symbol, expiration)
+    group: the median, over the ATM_STRIKES_USED live strikes nearest the
+    underlying price, of each strike's average call/put implied
+    volatility. Only contracts flagged `live_quote` count, and no strike
+    further than ATM_MAX_MONEYNESS_GAP from the underlying is used.
+    Returns None when no live strike is close enough -- no reading is
+    better than a wrong one (the expiry then gets no IV percentile and
+    fails the gates that need one).
+
+    Until 17 Nov 2026 this was the single nearest strike with no check
+    on its quote, so one dead strike could set the whole expiry's
+    reading."""
+    if underlying_price is None or not underlying_price > 0:
+        return None
+    live = group[group["live_quote"]]
+    if live.empty:
+        return None
+    per_strike = live.groupby("strike")["implied_volatility"].mean()
+    gap = (per_strike.index.to_series() / underlying_price - 1).abs()
+    nearest = gap[gap <= ATM_MAX_MONEYNESS_GAP].nsmallest(ATM_STRIKES_USED)
     if nearest.empty:
         return None
-    at_strike = group[group["strike"] == nearest["strike"].iloc[0]]
-    ivs = at_strike["implied_volatility"].dropna()
-    return float(ivs.mean()) if not ivs.empty else None
+    return float(per_strike.loc[nearest.index].median())
 
 
 def compute_signals(rows, snapshot_date):
@@ -223,7 +265,12 @@ def compute_signals(rows, snapshot_date):
     spread_pct = (df["ask"] - df["bid"]) / ask_for_spread
     df["wide_spread"] = (df["bid"] > 0) & (spread_pct > 0.5).fillna(False)
 
-    # IV / skew reads (component C step 6)
+    # IV / skew reads (component C step 6). Only contracts with a live
+    # quote are read (live_quote_flags). This day's history rows are
+    # rebuilt from scratch, so a reading that no longer qualifies does
+    # not linger from an earlier scoring of the same day.
+    df["live_quote"] = live_quote_flags(df, snapshot_date)
+    delete_history_for_date(snapshot_date)
     df["atm_iv"] = None
     df["atm_iv_90d_percentile"] = None
     df["skew_put_pct_of_atm"] = None
@@ -253,7 +300,7 @@ def compute_signals(rows, snapshot_date):
             skew_row = {"symbol": symbol, "expiration": expiration, "snapshot_date": snapshot_date,
                         "skew_put_pct_of_atm": None, "skew_call_pct_of_atm": None}
             for opt_type, col in (("put", "skew_put_pct_of_atm"), ("call", "skew_call_pct_of_atm")):
-                side = group[(group["type"] == opt_type) & group["delta"].notna()]
+                side = group[(group["type"] == opt_type) & group["delta"].notna() & group["live_quote"]]
                 if side.empty or not atm_iv:
                     continue
                 closest = side.iloc[(side["delta"].abs() - SKEW_DELTA_TARGET).abs().argsort()[:1]]

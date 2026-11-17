@@ -35,6 +35,10 @@ on:
         description: "Re-score EVERY day from its best-timed snapshot (only after a change to the scoring or session rule)"
         type: boolean
         default: false
+      rescreen_newest:
+        description: "Rebuild the newest day's recommendations even if they are already in the ledger (replaces that day's trades)"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -75,4 +79,4 @@ jobs:
       # Still screen the newest day if an older day failed above.
       - name: Screen trades for the newest day
         if: success() || failure()
-        run: python pipeline/screen_trades.py
+        run: python pipeline/screen_trades.py ${{ inputs.rescreen_newest && '--force' || '' }}
