@@ -150,3 +150,31 @@ The owner agreed to stop relying on GitHub's clock for anything that needs live 
 - Scoring rule change (`9de90db`, `best_quoted_session`): a snapshot captured in the last hour of trading (15:00-16:00 New York) always beats one captured after the close. Otherwise the 16:10 close capture would have become the pricing source. If the last-hour one is missing, the 16:10 one is used ahead of the 14:10 one. Past days were not re-scored; only 21 Sep would choose differently.
 - **Bug found, NOT fixed (owner to decide):** `atm_iv` for an expiry is read from the single strike nearest the underlying price, with no check that its quote is live. On 17 Nov BABA's 15 Jan 2027 expiry got ATM IV 164% because the nearest strike (87.5 call) last traded in May 2025 and carried a stale 42.15 / 43.00 quote; the neighbouring strikes were about 50%. That gave the BABA iron condor (rank 5, score 74.01) full marks for IV richness and term structure it had not earned. 32 of 917 symbol-expiries that day had ATM IV above 150% and 4 were below 3%. Suggested fix: take ATM IV only from strikes with a real two-sided quote and a recent trade, and reject values far from the neighbouring strikes. This feeds iv_history too, so past percentiles are affected.
 - Observation, not changed: the iron condor `pop_proxy` score uses 1 minus the AVERAGE of the two short deltas. A condor can lose on either side, so 1 minus the SUM is the closer rough estimate (about 75% rather than 87% for the SPY example).
+
+## Update 4, Tue 17 Nov 2026 (about 23:45 Dublin): ATM IV reading fixed, history rebuilt
+
+The owner said "yes, fix the volatility reading". Commit `d1dcc33`.
+
+**The rule now** (`pipeline/merge_and_score.py`, `live_quote_flags` and `_atm_iv`; numbers in `pipeline/config.py`):
+- A contract's implied volatility is only read if its quote is live: bid above zero, ask above bid, spread no more than half the ask, and a trade in the last 7 calendar days.
+- An expiry's ATM IV is the median over the 3 live strikes nearest the underlying price (call and put averaged per strike), using no strike more than 15% from the money.
+- No live strike near the money means no reading. That expiry then gets no IV percentile and fails the gates that need one.
+- The skew reading uses the same live test.
+- These numbers (7 days, 3 strikes, 15%) are the project's own choices, not book numbers.
+- Re-scoring a day now replaces that day's history rows (`db.delete_history_for_date`) instead of leaving old ones behind.
+
+**Measured before changing anything** (all 59 days, 48,440 expiry readings):
+- 76% keep a reading. The 24% that lose one are thin chains: on 17 Nov their median near-the-money open interest was 51, and they held 2.4% of the liquid signal rows.
+- Of those that keep one, 77% are within 10% of the old value and 2.9% differ by more than double.
+- BABA 15 Jan 2027: 164% became 51%. BABA 18 Dec 2026: 0.4% became 54%.
+
+**What was re-run** (cloud run 44198801901, 8 minutes, `rescore_all=true` + the new `rescreen_newest=true` input):
+- All 59 signals files and all 59 `iv_history` files were rebuilt. Checked afterwards: every day has exactly the same contract rows and prices as before, except 21 Sep (see below). Readings above 150% or below 3% in the signals files fell from 643 to 343; the ones left are real (UVXY, earnings-week names).
+- 17 Nov recommendations were rebuilt (`0b3ada8`). 10 of 20 trades changed. All six BABA short calendars went (they were built on the false 0.4% / 164% readings), and the BABA iron condor fell from rank 5 (74.01) to rank 17 (67.94). Now: 9 long calendars, 6 iron condors, 4 short calendars, 1 double diagonal. Candidates built fell from 120 to 70.
+- Ledger rows for every other day are byte-for-byte unchanged. Past recommendations were NOT rebuilt (standing decision).
+
+**Side effects and things noticed, none acted on:**
+- 21 Sep is now scored from its 15:00 "open" snapshot instead of the 16:37 "mid" one (the last-hour rule from Update 3). A full replay shows one stored result would differ: `2026-09-17-^SPX-1`, +23.47% stored, +21.63% on replay. The ledger was left as it is.
+- Tracker quirk: when a trade's legs stop being priced before expiry, the tracker records EXPIRED_PROFIT / EXPIRED_LOSS using the last day all legs had a price. 5 of the 6 "expired" trades were last priced 6 to 43 days before expiry (`2026-09-17-^SPX-1` was marked 4 days after entry, 43 days before expiry). These are marks, not expiry results. Owner to decide whether they should count.
+- 12 open trades have new results waiting from the 17 Nov prices; the tracker will pick them up on its next run.
+- The rebuilt list suggests 266, 400 and 800 contracts on three TE long calendars. That is the 100,000 placeholder account meeting very cheap options (same as ABR on 13 Nov).
