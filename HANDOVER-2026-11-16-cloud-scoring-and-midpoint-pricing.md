@@ -99,3 +99,22 @@ Not scored: 47 open, 57 that could not be priced at entry, 3 unpriced at expiry.
 - **Rebuild one day's recommendations** (from the project folder, replaces that day's trades): `python pipeline/screen_trades.py --force`
 - **Re-score every day** (only after changing the scoring or snapshot rule): `gh workflow run score-and-screen.yml --repo coop1st/options-trading-pipeline -f rescore_all=true`
 - **Run all the checks** (from the project folder): `python pipeline/verify_track_outcomes.py`, `python pipeline/verify_score_all_days.py`, `python pipeline/verify_strategy_rules.py`
+
+## Update, Tue 17 Nov 2026 (evening)
+
+**Checks from "First thing tomorrow":**
+
+1. Nightly email: PASS. "Options recommendations -- 2026-11-16" drafted 03:34, 20 trades, midpoint with bid and ask on every leg.
+2. Last-hour snapshot: PASS, by luck. `2026-11-17_preclose.csv` captured 15:28 New York (54,197 contracts; 72% had a real two-sided quote, against 62% in the 16 Nov close snapshot taken at 17:03). But GitHub started the every-20-minutes schedule only ONCE all day.
+3. Tuesday scored unattended: NOT YET CHECKED. It happens after the 17 Nov close snapshot. Check that the "Scoring ..." line in the run log names the `preclose` snapshot.
+4. Status email: PASS ("ALL GOOD: nothing for you to do.").
+5. GitHub schedule: NOT recovered. The 17 Nov open and midday fetches had not started by 21:40 Dublin.
+
+**Built today: an on-time start for the last-hour snapshot.**
+
+- Cloud routine "Options preclose dispatch", `trig_01R4JSaGK3iZ8Jq2UwMyJ9Uk`, cron `10 19,20 * * 1-5` UTC. One of the two fires lands at about 15:10 New York in summer and in winter. It checks the New York clock and, inside 15:00-15:50, starts `options-preclose-fetch.yml` through the GitHub tools (`gh` does not work in a routine). It sends a phone notification only if the workflow could not be started.
+- The workflow changed (`ca2b983`): a hand start now follows the same rules as a scheduled one (window, holidays, never overwrite). To override: `gh workflow run options-preclose-fetch.yml --repo coop1st/options-trading-pipeline -f force=true`.
+- GitHub's own schedule stays as the backup.
+- First real fire: Wed 18 Nov at 20:10 Dublin. Good: a `workflow_dispatch` run of "Options preclose fetch" starting about 20:10-20:25 Dublin that takes about 15 minutes and commits "Options snapshot: preclose 2026-11-18".
+- Known gap: on half-days (market closes 13:00 New York, next one Fri 27 Nov) the window is after the close, so that day is scored from an earlier snapshot.
+- Still to add to the Master Schedule CSVs and Sheet, with the other two outstanding items.
