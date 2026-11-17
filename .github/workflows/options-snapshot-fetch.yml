@@ -1,26 +1,45 @@
 name: Options snapshot fetch
 
 # Runs entirely in the cloud -- no local machine needed. Fetches options
-# chains for the current watchlist 3x per trading day (open/mid/close) and
-# commits the result as a small dated CSV. When this workflow finishes,
-# score-and-screen.yml runs and turns the close snapshot into the signals
-# file and the recommendation ledger.
+# chains for the current watchlist and commits the result as a small dated
+# CSV. When this workflow finishes, score-and-screen.yml runs; once the
+# day's close snapshot exists it scores the day.
+#
+# Three snapshots a day (since 17 Nov 2026):
+#   mid       about 14:10 New York   started on time by the cloud routine
+#                                    "Options preclose dispatch" (this file,
+#                                    session=mid). The fallback for pricing.
+#   preclose  about 15:10 New York   started by the same routine
+#                                    (options-preclose-fetch.yml). The one
+#                                    trades are priced from.
+#   close     after 16:00 New York   this file's schedule. Marks the day as
+#                                    over and sets off the scoring.
+# The old scheduled open and midday fetches were removed: GitHub started
+# them hours late, after the market had shut, so they were never usable.
+#
+# A session started at the wrong time of day for its name is skipped
+# (cloud/fetch_options_snapshot.py, wrong_time_reason), as are holidays
+# and a snapshot that already exists. force=true overrides all of that.
+
+run-name: "Options snapshot fetch (${{ inputs.session || 'close' }})"
 
 on:
   schedule:
-    # UTC times below assume EDT (UTC-4); expect ~1hr drift once EST
-    # (UTC-5) begins in November -- a few minutes either side of
-    # open/mid/close doesn't materially change the snapshot's value, same
-    # reasoning the Stocks project's weekly-price-fetch.yml already uses.
-    - cron: "35 13 * * 1-5"  # ~9:35am ET market open
-    - cron: "30 16 * * 1-5"  # ~12:30pm ET midday
-    - cron: "55 19 * * 1-5"  # ~3:55pm ET market close
+    # Both are the close fetch: 16:20 New York in summer and in winter
+    # respectively. The one that fires before 16:00 New York is skipped,
+    # and the later one is a backup that skips if the file exists.
+    - cron: "20 20 * * 1-5"
+    - cron: "20 21 * * 1-5"
   workflow_dispatch:
     inputs:
       session:
-        description: "Session to fetch (open, mid, close)"
+        description: "Session to fetch (mid, close)"
         required: true
         default: "close"
+      force:
+        description: "Fetch now even at the wrong time of day, on a holiday, or over an existing file"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -45,22 +64,16 @@ jobs:
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "session=$DISPATCH_SESSION" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "35 13 * * 1-5" ]; then
-            echo "session=open" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "30 16 * * 1-5" ]; then
-            echo "session=mid" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event.schedule }}" = "55 19 * * 1-5" ]; then
-            echo "session=close" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::Unrecognized schedule value: ${{ github.event.schedule }}"
-            exit 1
+            echo "session=close" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Fetch options snapshot
         env:
-          # Scheduled runs skip holidays/weekends and an existing non-empty
-          # file for the session; a manual dispatch always fetches.
-          OPTIONS_SNAPSHOT_FORCE: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+          # Scheduled runs and plain hand starts skip holidays/weekends, an
+          # existing non-empty file and a wrong time of day; only
+          # force=true overrides.
+          OPTIONS_SNAPSHOT_FORCE: ${{ inputs.force == true && '1' || '' }}
         run: python cloud/fetch_options_snapshot.py ${{ steps.session.outputs.session }}
 
       - name: Commit and push

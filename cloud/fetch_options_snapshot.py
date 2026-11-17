@@ -11,7 +11,9 @@ Run from the repo root: `python cloud/fetch_options_snapshot.py <session> [--for
 
 Skips (exit 0, no file written) on weekends, NYSE full-day holidays, and
 when today's file for that session already exists and is non-empty.
-`--force` or OPTIONS_SNAPSHOT_FORCE=1 overrides both skips (manual runs).
+`--force` or OPTIONS_SNAPSHOT_FORCE=1 overrides every skip. A session is
+also skipped when it is started at the wrong time of day for its name
+(see wrong_time_reason).
 
 "preclose" is the snapshot the pricing is meant to come from: it is only
 taken if the run actually STARTS in the last hour of trading
@@ -72,6 +74,26 @@ PRECLOSE_FROM, PRECLOSE_TO = 15.0, 15.0 + 50 / 60
 def in_preclose_window(now_ny):
     hour = now_ny.hour + now_ny.minute / 60
     return PRECLOSE_FROM <= hour <= PRECLOSE_TO
+
+
+# A session's name must match when it is really captured, because
+# pipeline/merge_and_score.py treats a "close" file as proof the trading
+# day is over and scores the day as soon as one exists. So "close" is
+# refused before the 16:00 New York close, and "open"/"mid" are refused
+# outside market hours (after hours the quotes are stale and wide).
+MARKET_OPEN, MARKET_CLOSE = 9.5, 16.0
+
+
+def wrong_time_reason(session, now_ny):
+    """Why `session` must not be captured at `now_ny`, or None if it may."""
+    hour = now_ny.hour + now_ny.minute / 60
+    if session == "preclose" and not in_preclose_window(now_ny):
+        return "outside the preclose window (15:00-15:50)"
+    if session == "close" and hour < MARKET_CLOSE:
+        return "before the 16:00 close"
+    if session in ("open", "mid") and not (MARKET_OPEN <= hour < MARKET_CLOSE):
+        return "outside market hours (09:30-16:00)"
+    return None
 
 
 def non_trading_reason(day):
@@ -171,9 +193,10 @@ def main():
         if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
             print(f"SKIPPED: {out_path} already exists and is non-empty; not overwriting. Use --force to override.")
             return
-        if session == "preclose" and not in_preclose_window(started):
-            print(f"SKIPPED: it is {started:%H:%M} in New York, outside the preclose window "
-                  f"(15:00-15:50). Use --force to override.")
+        reason = wrong_time_reason(session, started)
+        if reason:
+            print(f"SKIPPED: it is {started:%H:%M} in New York, {reason}; no '{session}' "
+                  f"snapshot written. Use --force to override.")
             return
 
     symbols = sorted(set(fetch_watchlist()) | set(TAIL_HEDGE_SYMBOLS))  # a failure here propagates and fails the job -- no watchlist, nothing to snapshot
