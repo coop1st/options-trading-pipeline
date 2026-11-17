@@ -118,3 +118,28 @@ Not scored: 47 open, 57 that could not be priced at entry, 3 unpriced at expiry.
 - First real fire: Wed 18 Nov at 20:10 Dublin. Good: a `workflow_dispatch` run of "Options preclose fetch" starting about 20:10-20:25 Dublin that takes about 15 minutes and commits "Options snapshot: preclose 2026-11-18".
 - Known gap: on half-days (market closes 13:00 New York, next one Fri 27 Nov) the window is after the close, so that day is scored from an earlier snapshot.
 - Still to add to the Master Schedule CSVs and Sheet, with the other two outstanding items.
+
+## Update 2, Tue 17 Nov 2026 (late evening): three snapshots a day, two on time
+
+The owner agreed to stop relying on GitHub's clock for anything that needs live quotes.
+
+| Snapshot | When (New York) | Started by | Purpose |
+|---|---|---|---|
+| `_mid` | about 14:10 | cloud routine | fallback for pricing |
+| `_preclose` | about 15:10 | cloud routine | the one trades are priced from |
+| `_close` | after 16:00 | GitHub schedule (often hours late) | marks the day as over, sets off scoring |
+
+- The routine is now called "Options snapshot dispatch (14:10 + 15:10 New York)", same id `trig_01R4JSaGK3iZ8Jq2UwMyJ9Uk`, cron `10 18,19,20 * * 1-5` UTC. It picks the job from the New York clock: 14:00-14:50 starts `options-snapshot-fetch.yml` with `session=mid`; 15:00-15:50 starts `options-preclose-fetch.yml`.
+- The scheduled open and midday fetches are gone (`a3bef9a`). GitHub started them after the market had shut, so they were never usable. The close schedule is now 20:20 and 21:20 UTC (16:20 New York in summer and winter).
+- New guard in `cloud/fetch_options_snapshot.py` (`wrong_time_reason`): `close` is refused before 16:00 New York, `mid`/`open` outside 09:30-16:00, `preclose` outside 15:00-15:50. This matters because scoring treats a `_close` file as proof the day is over.
+- Hand starts of either fetch workflow now follow the same rules. To override: add `-f force=true`. So "take a snapshot now" is: `gh workflow run options-snapshot-fetch.yml --repo coop1st/options-trading-pipeline -f session=close -f force=true`
+- Runs of the snapshot workflow are now titled with their session, for example "Options snapshot fetch (mid)".
+- The status email (`trig_01VBvPrZuubm8yYaXhywrzgz`) now reports the previous trading day's three snapshots and their capture times, and says PROBLEM if the last-hour snapshot is missed two days running. Prompt backup: `routine_backups/options_status_email_prompt_2026-11-17.txt`.
+
+**Check on Wed 18 Nov (evening, Dublin):**
+
+1. About 19:10-19:25: a run titled "Options snapshot fetch (mid)", about 15 minutes, commit "Options snapshot: mid 2026-11-18". This is the first time the routine passes the session input; if the title says "(close)" the input did not get through (the run then skips and the routine sends a phone notification).
+2. About 20:10-20:25: a hand-started "Options preclose fetch" run, commit "Options snapshot: preclose 2026-11-18".
+3. The close fetch and "Score and screen" afterwards; the "Scoring ..." log line should name the `preclose` snapshot.
+
+**Possible next step (not built):** have the routine also start the close fetch at about 16:10 New York, so scoring happens by about 21:45 Dublin instead of whenever GitHub gets round to it.
