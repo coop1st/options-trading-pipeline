@@ -86,11 +86,25 @@ def best_quoted_session(snapshot_date, sessions, times):
     6-7% wide; later captures were 15-17% wide and some had lost half
     their quotes. So: among the snapshots captured ON the trading day
     between 09:45 and 17:00 New York, take the one captured closest to
-    the 16:00 close. If none was (or capture times are unknown), fall
-    back to the old preference close > mid > open and say so.
+    the 16:00 close -- but one captured in the last hour of trading
+    (15:00 to 16:00) always beats one captured after the market shut.
+    If none was in the window (or capture times are unknown), fall back
+    to the old preference close > mid > open and say so.
 
-    Returns (session, well_timed: bool). The window is the project's own
-    operationalization of the measurement above, not a book rule."""
+    Why the last hour first (added 17 Nov 2026, when the close fetch began to
+    be started on time at about 16:10): quotes decay quickly once
+    trading stops. Measured on 17 Nov 2026, contracts with open interest
+    of 100 or more: captured 15:28 New York 77% had a real two-sided
+    quote, median 9% wide; 16:53, 74% and 13%; 17:27, 49% and 21%.
+    Without this, a 16:10 "close" capture would sit nearer 16:00 than a
+    15:10 "preclose" one and would quietly become the pricing source.
+    An earlier in-hours capture (say 14:10) does NOT outrank a 16:10
+    one: two hours of market movement matters more than the small loss
+    of quote quality in the first minutes after the close.
+
+    Returns (session, well_timed: bool). The window and the last-hour
+    preference are the project's own operationalization of the
+    measurements above, not a book rule."""
     candidates = []
     for session in sessions:
         ts = times.get((snapshot_date, session))
@@ -99,9 +113,10 @@ def best_quoted_session(snapshot_date, sessions, times):
         ny = ts.astimezone(MARKET_TZ)
         hour = ny.hour + ny.minute / 60
         if ny.date().isoformat() == snapshot_date and WELL_TIMED_FROM <= hour <= WELL_TIMED_TO:
-            candidates.append((abs(hour - 16.0), session))
+            last_hour = 15.0 <= hour <= 16.0
+            candidates.append((not last_hour, abs(hour - 16.0), session))
     if candidates:
-        return min(candidates)[1], True
+        return min(candidates)[2], True
     for session in SESSION_PREFERENCE:
         if session in sessions:
             return session, False

@@ -49,7 +49,8 @@ def verify_select_dates():
           select_dates_to_score({}, set()) == [])
 
     # Which snapshot to price from: the one captured closest to the 16:00
-    # New York close, within 09:45-17:00 that day -- whatever its label.
+    # New York close, within 09:45-17:00 that day -- whatever its label --
+    # with a capture from the last hour of trading ahead of a later one.
     from datetime import datetime, timezone
     from merge_and_score import best_quoted_session
     utc = lambda *a: datetime(*a, tzinfo=timezone.utc)
@@ -71,6 +72,17 @@ def verify_select_dates():
     check("summer time is handled (EDT, UTC-4): 19:30 UTC is 15:30 New York",
           best_quoted_session("2026-09-15", {"mid", "close"}, {("2026-09-15", "mid"): utc(2026, 9, 15, 19, 30),
                                                              ("2026-09-15", "close"): utc(2026, 9, 15, 23, 30)}) == ("mid", True))
+    # 18 Nov 2026 (EST): "mid" 14:12 NY, "preclose" 15:12 NY, "close" 16:12 NY
+    three = {("2026-11-18", "mid"): utc(2026, 11, 18, 19, 12), ("2026-11-18", "preclose"): utc(2026, 11, 18, 20, 12),
+             ("2026-11-18", "close"): utc(2026, 11, 18, 21, 12)}
+    check("a last-hour capture beats a nearer one taken after the close",
+          best_quoted_session("2026-11-18", {"mid", "preclose", "close"}, three) == ("preclose", True))
+    check("if the last-hour capture is missing, the 16:12 one is used ahead of the 14:12 one",
+          best_quoted_session("2026-11-18", {"mid", "close"}, three) == ("close", True))
+    check("if only the 14:12 capture exists in the window, it is used",
+          best_quoted_session("2026-11-18", {"mid"}, three) == ("mid", True))
+    check("an after-close capture inside the window is still used when it is all there is",
+          best_quoted_session("2026-11-18", {"close"}, three) == ("close", True))
     check("select uses the best-timed session for each day",
           select_dates_to_score({"2026-11-13": all3}, set(), times) == [("2026-11-13", "open")])
     check("the newest day still waits for its close snapshot to exist",
