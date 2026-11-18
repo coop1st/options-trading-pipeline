@@ -282,6 +282,20 @@ def main():
     status, _, _ = evaluate_trade("short calendar", sc, day(59.0, 47.0), date(2026, 12, 1), evaluator_overrides={"margin": m})
     check("short calendar: target is still 5% of the credit", status == "HIT_TARGET")
 
+    # Minimum profit of 5 cents before a calendar/diagonal target counts (2026-11-18).
+    small = [_leg("short put", 0.30, "TEST260601P00010000"), _leg("long put", 0.70, "TEST260701P00010000")]
+    one = lambda s_px, l_px: {"2026-05-01": {"TEST260601P00010000": s_px, "TEST260701P00010000": l_px}}
+    status, _, _ = evaluate_trade("long calendar", small, one(0.30, 0.73), date(2026, 5, 1))
+    check("long calendar: +7.5% but only 3 cents is not a target", status == "OPEN")
+    status, _, _ = evaluate_trade("long calendar", small, one(0.30, 0.75), date(2026, 5, 1))
+    check("long calendar: +5 cents is a target", status == "HIT_TARGET")
+    small_sc = [_leg("short call", 0.80, "TEST260701C00010000"), _leg("long call", 0.50, "TEST260601C00010000")]
+    one_c = lambda s_px, l_px: {"2026-05-01": {"TEST260701C00010000": s_px, "TEST260601C00010000": l_px}}
+    status, _, _ = evaluate_trade("short calendar", small_sc, one_c(0.77, 0.50), date(2026, 5, 1), evaluator_overrides={"margin": 3.0})
+    check("short calendar: +10% but only 3 cents is not a target", status == "OPEN")
+    status, _, _ = evaluate_trade("short calendar", small_sc, one_c(0.75, 0.50), date(2026, 5, 1), evaluator_overrides={"margin": 3.0})
+    check("short calendar: +5 cents is a target", status == "HIT_TARGET")
+
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
         sys.exit(1)

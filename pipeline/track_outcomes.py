@@ -22,7 +22,7 @@ import pandas as pd
 
 from pricing import price_lookup
 from config import (
-    CALENDAR_EXIT_STOP_PCT, CALENDAR_EXIT_TARGET_PCT, CONDOR_EXIT_TARGET_PCT,
+    CALENDAR_EXIT_STOP_PCT, CALENDAR_EXIT_TARGET_PCT, CALENDAR_MIN_PROFIT_DOLLARS, CONDOR_EXIT_TARGET_PCT,
     CONDOR_EXIT_TIME_DTE, DIAGONAL_EXIT_STOP_PCT, DIAGONAL_EXIT_TARGET_PCT,
     DIRECTIONAL_STOP_PCT, DIRECTIONAL_TARGET_PCT, NAKED_MARGIN_MIN_RATE, NAKED_MARGIN_RATE_EQUITY,
     NAKED_MARGIN_RATE_INDEX, PROJECT_DIR, VERTICAL_EXIT_TARGET_PCT,
@@ -132,7 +132,7 @@ def _evaluate_long_calendar(legs, price_lookup, dte, width):
         return None
     value = _current_value_now(legs, price_lookup)
     profit_pct = (value - debit) / debit
-    if profit_pct >= CALENDAR_EXIT_TARGET_PCT:
+    if profit_pct >= CALENDAR_EXIT_TARGET_PCT and (value - debit) >= CALENDAR_MIN_PROFIT_DOLLARS:
         return "HIT_TARGET", profit_pct
     if -profit_pct >= CALENDAR_EXIT_STOP_PCT:
         return "HIT_MAX_LOSS", profit_pct
@@ -172,7 +172,7 @@ def _evaluate_short_calendar(legs, price_lookup, dte, width, margin=None):
         return None
     cost = _cost_to_close_now(legs, price_lookup)
     profit_pct = (credit - cost) / credit
-    if profit_pct >= CALENDAR_EXIT_TARGET_PCT:
+    if profit_pct >= CALENDAR_EXIT_TARGET_PCT and (credit - cost) >= CALENDAR_MIN_PROFIT_DOLLARS:
         return "HIT_TARGET", profit_pct
     stop_dollars = CALENDAR_EXIT_STOP_PCT * (margin if margin else credit)
     if (cost - credit) >= stop_dollars:
@@ -186,7 +186,7 @@ def _evaluate_double_diagonal(legs, price_lookup, dte, width):
         return None
     value = _current_value_now(legs, price_lookup)
     profit_pct = (value - debit) / debit
-    if profit_pct >= DIAGONAL_EXIT_TARGET_PCT:
+    if profit_pct >= DIAGONAL_EXIT_TARGET_PCT and (value - debit) >= CALENDAR_MIN_PROFIT_DOLLARS:
         return "HIT_TARGET", profit_pct
     if -profit_pct >= DIAGONAL_EXIT_STOP_PCT:
         return "HIT_MAX_LOSS", profit_pct

@@ -165,6 +165,13 @@ NAKED_MARGIN_MIN_RATE = 0.10
 # first version the same day -- the 5% target itself had to clear half
 # the width -- passed only 25 of 180 past trades and was dropped by the
 # owner; this one passes 116.) Study: studies/exit_rule_study.py.
+# Minimum profit before a calendar or double diagonal counts as having hit
+# its target (owner, 2026-11-18: "a flat amount per trade, 5 cents", to
+# cover the cost of trading). Dollars per share of net price, so $5 a
+# contract. The target is the larger of this and the 5% rule. The
+# project's own number, not a book number. Stops are unchanged.
+CALENDAR_MIN_PROFIT_DOLLARS = 0.05
+
 QUOTE_WIDTH_GATE_STRATEGIES = ("long calendar", "short calendar", "double diagonal")
 # directional-strategies.md SS6: "individually-chosen stop-loss...
 # below the theoretical max loss" -- no book-given fraction, so 50%/200%

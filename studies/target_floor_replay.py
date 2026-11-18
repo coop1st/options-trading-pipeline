@@ -36,8 +36,11 @@ for tid, trs in by.items():
     if s == "short calendar":
         m = short_calendar_margin(trs[0]["symbol"], el, und.get(ed, {}).get(trs[0]["symbol"]))
         stop = 0.10 * (m or base)
+    FLAT = 0.05  # owner's choice 18 Nov: flat 5 cents per trade
     for label, tgt, stp in (("old", 0.05 * base, stop), ("floor", max(0.05 * base, cost), stop),
-                            ("both", max(0.05 * base, cost), max(stop, cost))):
+                            ("both", max(0.05 * base, cost), max(stop, cost)),
+                            ("flat5", max(0.05 * base, FLAT), stop),
+                            ("flat5both", max(0.05 * base, FLAT), max(stop, FLAT))):
         res = None
         for n, d, dte, pct, dol, hw in p:
             if dol >= tgt: res = ("TARGET", n, pct, dol); break
@@ -50,5 +53,5 @@ df = pd.DataFrame(out)
 print("trades passing gate A:", df.tid.nunique())
 for (s, rule), g in df.groupby(["strategy", "rule"]):
     r = g[g.exit != "OPEN"]
-    print(f"{s:16s} {rule:5s} n={len(g):3d} {g.exit.value_counts().to_dict()}  resolved {len(r)}: "
+    print(f"{s:16s} {rule:9s} n={len(g):3d} {g.exit.value_counts().to_dict()}  resolved {len(r)}: "
           f"midpoint win {(r.pct>0).mean():.0%} avg {r.pct.mean():+.1%} | after cost win {(r.net_pct>0).mean():.0%} avg {r.net_pct.mean():+.1%}  median days {r.days.median():.0f}")
