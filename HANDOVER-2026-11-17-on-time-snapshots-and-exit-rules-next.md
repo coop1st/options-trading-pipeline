@@ -140,3 +140,8 @@ Not scored: 50 open, 57 that could not be priced at entry, 9 unresolved at expir
 **Found, not changed:** short calendar position size is still worked out from the credit (`max_loss` in `build_calendars`), which is not the trade's real risk.
 
 **Evening checks for 18 Nov** (items 2 to 4 of "First thing tomorrow") were not yet due when this was written. Item 1 passed. Tonight's screen is the first with the entry gate: expect a log line "... calendar/diagonal candidate(s) left out: exit target smaller than half the quote width" and a list made mostly of iron condors and verticals.
+
+### Later on 18 Nov: gate loosened, profit floor waiting on the owner
+
+- The owner did not like the strict gate ("it takes away too many of the trades we already did"). Replaced the same afternoon (1029e0b) with the looser one: a calendar or double diagonal is refused only when its net price is smaller than the combined bid-ask width of its legs. 116 of 180 past trades pass; 9 of the 14 on the 17 Nov list pass.
+- The owner also asked for "a minimum cent value increase on profit margin in order to cover cost of trade". NOT built yet. Replay (`studies/target_floor_replay.py`): a profit floor on its own makes long calendars worse (19 stops, 3 targets) because the stop stays a few cents wide; the same floor on the stop fixes that. Waiting on the owner's yes/no for the stop.
