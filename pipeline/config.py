@@ -142,6 +142,29 @@ CALENDAR_EXIT_TARGET_PCT = 0.05
 CALENDAR_EXIT_STOP_PCT = 0.10
 DIAGONAL_EXIT_TARGET_PCT = 0.05
 DIAGONAL_EXIT_STOP_PCT = 0.10
+# Short calendar stop (owner, 2026-11-18): Chen/Sebastian ch.9 says "never
+# lose more than 10% of the original margin". For a long calendar the
+# margin is the debit, so 10% of the debit is the book rule. For a short
+# calendar the margin is far larger than the credit, so its stop is now
+# 10% of an ESTIMATED original margin. The estimate is NOT from the books
+# (they give no margin formula): it is the standard exchange rule for an
+# uncovered short option -- the bought front month expires first, so it
+# does not cover the sold back month -- i.e. the option's price plus the
+# larger of (rate x underlying, less any out-of-the-money amount) and
+# (10% of the underlying for a call / of the strike for a put), plus the
+# price paid for the bought option. A broker's real figure, or portfolio
+# margin, will differ.
+NAKED_MARGIN_RATE_EQUITY = 0.20
+NAKED_MARGIN_RATE_INDEX = 0.15   # broad-based index options (symbols starting "^")
+NAKED_MARGIN_MIN_RATE = 0.10
+
+# Entry gate for calendars and double diagonals (owner, 2026-11-18; the
+# project's own rule, not a book rule). The 5% exit target, in dollars,
+# must be at least half the combined bid-ask width of the legs. Below
+# that, the target and stop sit inside the quote and fire on noise: in
+# the 18 Nov study 78-79% of exits outside ^SPX were moves smaller than
+# half the quote width (studies/exit_rule_study.py).
+QUOTE_WIDTH_GATE_STRATEGIES = ("long calendar", "short calendar", "double diagonal")
 # directional-strategies.md SS6: "individually-chosen stop-loss...
 # below the theoretical max loss" -- no book-given fraction, so 50%/200%
 # of premium are this spec's own choice (see the design spec's rationale).

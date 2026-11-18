@@ -24,7 +24,8 @@ from pricing import price_lookup
 from config import (
     CALENDAR_EXIT_STOP_PCT, CALENDAR_EXIT_TARGET_PCT, CONDOR_EXIT_TARGET_PCT,
     CONDOR_EXIT_TIME_DTE, DIAGONAL_EXIT_STOP_PCT, DIAGONAL_EXIT_TARGET_PCT,
-    DIRECTIONAL_STOP_PCT, DIRECTIONAL_TARGET_PCT, PROJECT_DIR, VERTICAL_EXIT_TARGET_PCT,
+    DIRECTIONAL_STOP_PCT, DIRECTIONAL_TARGET_PCT, NAKED_MARGIN_MIN_RATE, NAKED_MARGIN_RATE_EQUITY,
+    NAKED_MARGIN_RATE_INDEX, PROJECT_DIR, VERTICAL_EXIT_TARGET_PCT,
 )
 
 SIGNALS_DIR = PROJECT_DIR / "data" / "github_sync" / "signals"
@@ -138,7 +139,34 @@ def _evaluate_long_calendar(legs, price_lookup, dte, width):
     return None
 
 
-def _evaluate_short_calendar(legs, price_lookup, dte, width):
+def short_calendar_margin(symbol, legs, underlying_price):
+    """ESTIMATED original margin, per share, of a short calendar at entry
+    -- see config.py (NAKED_MARGIN_*) for the rule and why it is the
+    project's own estimate, not a book number. legs carry entry_price and
+    contract_symbol. None if there is no underlying price to work from."""
+    if underlying_price is None or not underlying_price > 0:
+        return None
+    short = next(l for l in legs if l["leg_role"].startswith("short"))
+    long_ = next(l for l in legs if l["leg_role"].startswith("long"))
+    _exp, option_type, strike = parse_contract(short["contract_symbol"])
+    rate = NAKED_MARGIN_RATE_INDEX if symbol.startswith("^") else NAKED_MARGIN_RATE_EQUITY
+    if option_type == "call":
+        otm = max(0.0, strike - underlying_price)
+        floor = NAKED_MARGIN_MIN_RATE * underlying_price
+    else:
+        otm = max(0.0, underlying_price - strike)
+        floor = NAKED_MARGIN_MIN_RATE * strike
+    return short["entry_price"] + max(rate * underlying_price - otm, floor) + long_["entry_price"]
+
+
+def _evaluate_short_calendar(legs, price_lookup, dte, width, margin=None):
+    """Target: 5% of the credit (the book's worked short calendars measure
+    the gain on the price sold at). Stop: a loss of 10% of the original
+    margin (Chen/Sebastian ch.9), using short_calendar_margin's estimate.
+    If no margin could be estimated (margin=None) the stop falls back to
+    10% of the credit, the rule in force before 2026-11-18. The result is
+    still reported as a percentage of the credit, like every other
+    credit trade."""
     credit = _credit_received(legs)
     if credit <= 0:
         return None
@@ -146,7 +174,8 @@ def _evaluate_short_calendar(legs, price_lookup, dte, width):
     profit_pct = (credit - cost) / credit
     if profit_pct >= CALENDAR_EXIT_TARGET_PCT:
         return "HIT_TARGET", profit_pct
-    if -profit_pct >= CALENDAR_EXIT_STOP_PCT:
+    stop_dollars = CALENDAR_EXIT_STOP_PCT * (margin if margin else credit)
+    if (cost - credit) >= stop_dollars:
         return "HIT_MAX_LOSS", profit_pct
     return None
 
@@ -225,7 +254,9 @@ def evaluate_trade(strategy, legs, signals_by_date, today, evaluator_overrides=N
     without one, the trade is UNRESOLVED_AT_EXPIRATION (dated at its
     expiration) and is never scored. evaluator_overrides (optional dict of
     kwargs) is forwarded to the evaluator -- meaningful only for
-    "long call"/"long put" (see _evaluate_directional_long); passing it
+    "long call"/"long put" (see _evaluate_directional_long) and for
+    "short calendar" ({"margin": ...}, the trade's estimated original
+    margin -- a fact about the trade, not a swept setting); passing it
     for any other strategy will raise, since those evaluators take no
     such kwargs, by design (Tier 1 exit rules are never swept).
     entry_date (ISO str): only snapshots strictly after it are replayed --
@@ -313,6 +344,17 @@ def _load_all_signals():
     return result
 
 
+def _load_underlying_prices():
+    """{date_str: {symbol: underlying_price}} from every signals file."""
+    result = {}
+    if not SIGNALS_DIR.exists():
+        return result
+    for f in sorted(SIGNALS_DIR.glob("*.csv")):
+        df = pd.read_csv(f, usecols=["symbol", "underlying_price"]).dropna()
+        result[f.stem] = df.groupby("symbol")["underlying_price"].first().to_dict()
+    return result
+
+
 def _entry_info_for_trade(trade_rows):
     """trade_rows: every ledger row sharing one trade_id. Returns
     (entry_date, legs) -- legs is [] if entry pricing can't be recovered
@@ -372,6 +414,7 @@ def run_track_outcomes():
             fieldnames.append(col)
 
     signals_by_date = _load_all_signals()
+    underlying_by_date = _load_underlying_prices()
     today = date.today()
 
     by_trade_id = {}
@@ -398,8 +441,15 @@ def run_track_outcomes():
             if entry_legs is None:
                 status, outcome_date, realized_pct = "ENTRY_NOT_PRICEABLE", entry_date, None
             else:
+                overrides = None
+                if strategy == "short calendar":
+                    symbol = trade_rows[0]["symbol"]
+                    margin = short_calendar_margin(symbol, entry_legs, underlying_by_date.get(entry_date, {}).get(symbol))
+                    if margin is None:
+                        print(f"{trade_id}: no underlying price on {entry_date} -- stop measured on the credit instead of margin")
+                    overrides = {"margin": margin}
                 status, outcome_date, realized_pct = evaluate_trade(strategy, entry_legs, signals_by_date, today,
-                                                                    entry_date=entry_date)
+                                                                    evaluator_overrides=overrides, entry_date=entry_date)
         except Exception as exc:
             print(f"{trade_id}: SKIPPED ({exc})")
             continue

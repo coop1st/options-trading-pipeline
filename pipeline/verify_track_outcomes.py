@@ -248,6 +248,40 @@ def main():
     check("a long calendar that costs a debit is",
           screen_trades.has_positive_net_entry(cand("long calendar", [("short put", 3.10), ("long put", 3.80)])))
 
+    # Entry gate (2026-11-18): a calendar/diagonal whose 5% target is
+    # smaller than half the quote width of its legs is not recommended.
+    qcand = lambda strategy, legs: {"strategy": strategy, "legs": [
+        {"leg_role": r, "last_price": (b + a) / 2, "bid": b, "ask": a} for r, b, a in legs]}
+    check("a 13.20 short calendar with 0.50 of half-width passes the quote-width gate (target 0.66)",
+          screen_trades.target_clears_quote_width(qcand("short calendar", [("short call", 59.5, 60.0), ("long call", 46.3, 46.8)])))
+    check("a 0.225 short calendar with 0.095 of half-width does not (target 0.011; KHC 2026-11-17)",
+          not screen_trades.target_clears_quote_width(qcand("short calendar", [("short call", 0.74, 0.83), ("long call", 0.51, 0.61)])))
+    check("a long calendar inside its quote width does not pass (TE 2026-11-17)",
+          not screen_trades.target_clears_quote_width(qcand("long calendar", [("short put", 0.25, 0.30), ("long put", 0.30, 0.40)])))
+    check("the gate leaves an iron condor alone",
+          screen_trades.target_clears_quote_width(qcand("iron condor", [("short call", 0.10, 0.90), ("long call", 0.05, 0.50)])))
+
+    # Short calendar stop on estimated original margin (2026-11-18).
+    from track_outcomes import short_calendar_margin
+    sc = [_leg("short call", 60.0, "SPX270115C07200000"), _leg("long call", 47.0, "SPX261218C07200000")]
+    m = short_calendar_margin("^SPX", sc, 7200.0)
+    check("index short call calendar margin = 60 + 15% x 7200 + 47 = 1187", abs(m - 1187.0) < 1e-6)
+    eq = [_leg("short put", 1.00, "KHC261218P00025000"), _leg("long put", 0.40, "KHC261127P00025000")]
+    check("equity short put calendar, 1.00 out of the money: 1.00 + (20% x 26 - 1) + 0.40 = 5.60",
+          abs(short_calendar_margin("KHC", eq, 26.0) - 5.60) < 1e-6)
+    check("far out-of-the-money put falls back to the 10%-of-strike floor: 1.00 + 2.50 + 0.40",
+          abs(short_calendar_margin("KHC", eq, 40.0) - 3.90) < 1e-6)
+    check("no underlying price -> no margin estimate", short_calendar_margin("KHC", eq, None) is None)
+    # credit 13.00; a 20.00 loss is 154% of the credit but under 10% of margin (118.70)
+    day = lambda short_px, long_px: {"2026-12-01": {"SPX270115C07200000": short_px, "SPX261218C07200000": long_px}}
+    status, _, _ = evaluate_trade("short calendar", sc, day(80.0, 47.0), date(2026, 12, 1), evaluator_overrides={"margin": m})
+    check("short calendar: a loss under 10% of margin stays open", status == "OPEN")
+    status, _, pct = evaluate_trade("short calendar", sc, day(180.0, 47.0), date(2026, 12, 1), evaluator_overrides={"margin": m})
+    check("short calendar: a loss of 120.00 (over 10% of 1187 margin) is a stop, reported on the credit",
+          status == "HIT_MAX_LOSS" and abs(pct - (-120.0 / 13.0)) < 1e-6)
+    status, _, _ = evaluate_trade("short calendar", sc, day(59.0, 47.0), date(2026, 12, 1), evaluator_overrides={"margin": m})
+    check("short calendar: target is still 5% of the credit", status == "HIT_TARGET")
+
     print("ALL_OK" if ALL_OK else "VERIFICATION_FAILED")
     if not ALL_OK:
         sys.exit(1)
