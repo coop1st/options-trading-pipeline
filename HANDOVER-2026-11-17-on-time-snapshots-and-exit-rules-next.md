@@ -118,3 +118,25 @@ Not scored: 50 open, 57 that could not be priced at entry, 9 unresolved at expir
 - **Update trade results now:** `gh workflow run track-outcomes.yml --repo coop1st/options-trading-pipeline`
 - **Rebuild the performance report:** `gh workflow run compare-strategies.yml --repo coop1st/options-trading-pipeline`
 - **Run all the checks** (from the project folder): `python pipeline/verify_track_outcomes.py`, `python pipeline/verify_score_all_days.py`, `python pipeline/verify_strategy_rules.py`
+
+## Update, Wed 18 Nov: exit-rule study done, two changes live
+
+**Study** (`studies/exit_rule_study.py`, outputs beside it; matches the ledger exactly, 138 exits):
+
+- 73 of 138 calendar and double diagonal exits fired on day 1, 97 within two days.
+- Outside ^SPX the typical net price is $0.47 to $0.63, so the 5% target is 2 to 3 cents against 21 cents of half quote width. 78-79% of those exits were moves smaller than half the quote width. ^SPX short calendar moves are real (9% inside).
+- Paying half the quote width in and out: long calendar winners fall from 54% to 3%, short calendar 72% to 37%.
+- Holding longer: long calendars look better (inside the noise), short calendars get worse.
+- Books: the 5-10% target "in a few days" is Chen/Sebastian ch.9. The stop is "10% of the original margin", not of the net price.
+
+**Owner's decisions (18 Nov):** "lets do 1 and 2. But on 3, no minimum holding period. And leave the rules but also leave as is."
+
+1. **Entry gate, live (df21c2b).** A calendar or double diagonal is not recommended when its 5% target in dollars is smaller than half the combined bid-ask width of its legs (`screen_trades.target_clears_quote_width`). On past data only 25 of 180 priceable trades pass: 23 ^SPX short calendars and 2 SPY. No long calendar and no double diagonal has ever passed. None of the 14 calendar/diagonal trades on the 17 Nov list would pass.
+2. **Short calendar stop on margin, live (df21c2b).** Stop = a loss of 10% of an estimated original margin (`track_outcomes.short_calendar_margin`; exchange rule for an uncovered short option, the project's own estimate, constants in `config.py`). Target still 5% of the credit; result still reported on the credit. Applies to open (11) and new short calendars. Past results are not replayed.
+3. No minimum holding period. Thresholds unchanged.
+
+**Known consequence of 2, told to the owner:** the estimated margin is about 87 times the credit on ^SPX and 17 times elsewhere, so on the 68 past short calendars the new stop would never have fired. The 19 old stops would have become 6 targets, 3 expiry marks and 10 still open at -30% to -64% of the credit.
+
+**Found, not changed:** short calendar position size is still worked out from the credit (`max_loss` in `build_calendars`), which is not the trade's real risk.
+
+**Evening checks for 18 Nov** (items 2 to 4 of "First thing tomorrow") were not yet due when this was written. Item 1 passed. Tonight's screen is the first with the entry gate: expect a log line "... calendar/diagonal candidate(s) left out: exit target smaller than half the quote width" and a list made mostly of iron condors and verticals.
