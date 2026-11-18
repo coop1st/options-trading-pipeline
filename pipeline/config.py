@@ -159,11 +159,12 @@ NAKED_MARGIN_RATE_INDEX = 0.15   # broad-based index options (symbols starting "
 NAKED_MARGIN_MIN_RATE = 0.10
 
 # Entry gate for calendars and double diagonals (owner, 2026-11-18; the
-# project's own rule, not a book rule). The 5% exit target, in dollars,
-# must be at least half the combined bid-ask width of the legs. Below
-# that, the target and stop sit inside the quote and fire on noise: in
-# the 18 Nov study 78-79% of exits outside ^SPX were moves smaller than
-# half the quote width (studies/exit_rule_study.py).
+# project's own rule, not a book rule). The trade's whole net price must
+# be at least the combined bid-ask width of its legs; below that the
+# trade is worth less than the uncertainty in its own price. (A stricter
+# first version the same day -- the 5% target itself had to clear half
+# the width -- passed only 25 of 180 past trades and was dropped by the
+# owner; this one passes 116.) Study: studies/exit_rule_study.py.
 QUOTE_WIDTH_GATE_STRATEGIES = ("long calendar", "short calendar", "double diagonal")
 # directional-strategies.md SS6: "individually-chosen stop-loss...
 # below the theoretical max loss" -- no book-given fraction, so 50%/200%

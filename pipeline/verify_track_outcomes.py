@@ -248,15 +248,15 @@ def main():
     check("a long calendar that costs a debit is",
           screen_trades.has_positive_net_entry(cand("long calendar", [("short put", 3.10), ("long put", 3.80)])))
 
-    # Entry gate (2026-11-18): a calendar/diagonal whose 5% target is
-    # smaller than half the quote width of its legs is not recommended.
+    # Entry gate (2026-11-18): a calendar/diagonal whose net price is
+    # smaller than the bid-ask width of its legs is not recommended.
     qcand = lambda strategy, legs: {"strategy": strategy, "legs": [
         {"leg_role": r, "last_price": (b + a) / 2, "bid": b, "ask": a} for r, b, a in legs]}
-    check("a 13.20 short calendar with 0.50 of half-width passes the quote-width gate (target 0.66)",
+    check("a 13.20 short calendar with 1.00 of quote width passes the quote-width gate",
           screen_trades.target_clears_quote_width(qcand("short calendar", [("short call", 59.5, 60.0), ("long call", 46.3, 46.8)])))
-    check("a 0.225 short calendar with 0.095 of half-width does not (target 0.011; KHC 2026-11-17)",
-          not screen_trades.target_clears_quote_width(qcand("short calendar", [("short call", 0.74, 0.83), ("long call", 0.51, 0.61)])))
-    check("a long calendar inside its quote width does not pass (TE 2026-11-17)",
+    check("a 0.225 short calendar with 0.19 of quote width passes too (KHC 2026-11-17)",
+          screen_trades.target_clears_quote_width(qcand("short calendar", [("short call", 0.74, 0.83), ("long call", 0.51, 0.61)])))
+    check("a 0.075 long calendar with 0.15 of quote width does not pass (TE 2026-11-17)",
           not screen_trades.target_clears_quote_width(qcand("long calendar", [("short put", 0.25, 0.30), ("long put", 0.30, 0.40)])))
     check("the gate leaves an iron condor alone",
           screen_trades.target_clears_quote_width(qcand("iron condor", [("short call", 0.10, 0.90), ("long call", 0.05, 0.50)])))

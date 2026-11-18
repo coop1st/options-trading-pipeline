@@ -23,7 +23,7 @@ from pricing import as_trade_prices
 from track_outcomes import STRUCTURE_TYPE, _credit_received, _debit_paid
 from publish import commit_and_push, git_pull
 from config import (
-    ACCOUNT_EQUITY, CALENDAR_EXIT_TARGET_PCT, DIAGONAL_EXIT_TARGET_PCT, QUOTE_WIDTH_GATE_STRATEGIES,
+    ACCOUNT_EQUITY, QUOTE_WIDTH_GATE_STRATEGIES,
     CALENDAR_LONG_PREMIUM_MAX, CALENDAR_LONG_PREMIUM_MIN,
     CALENDAR_MIN_FRONT_DAYS, CALENDAR_SHORT_DISCOUNT, CONDOR_DELTA_MAX, CONDOR_DELTA_MIN,
     CONDOR_MAX_DTE, CONDOR_MIN_DTE, EQUITY_MIN_DAILY_VOLUME, LABEL_THESIS_THRESHOLD,
@@ -139,10 +139,9 @@ def has_positive_net_entry(candidate):
 
 
 def target_clears_quote_width(candidate):
-    """False for a calendar or double diagonal whose exit target, in
-    dollars, is smaller than half the combined bid-ask width of its legs
-    -- see config.QUOTE_WIDTH_GATE_STRATEGIES. Such a trade's target and
-    stop sit inside its own quote, so it is not recommended. Every other
+    """False for a calendar or double diagonal whose net price is smaller
+    than the combined bid-ask width of its legs -- see
+    config.QUOTE_WIDTH_GATE_STRATEGIES. Such a trade is not recommended. Every other
     strategy passes. Needs bid and ask on each leg; a candidate without
     them (older test fixtures) passes."""
     strategy = candidate.get("strategy")
@@ -153,9 +152,8 @@ def target_clears_quote_width(candidate):
         return True
     priced = [{"leg_role": l["leg_role"], "entry_price": l["last_price"]} for l in legs]
     basis = _credit_received(priced) if STRUCTURE_TYPE[strategy] == "credit" else _debit_paid(priced)
-    half_width = sum((l["ask"] - l["bid"]) / 2 for l in legs)
-    target_pct = DIAGONAL_EXIT_TARGET_PCT if strategy == "double diagonal" else CALENDAR_EXIT_TARGET_PCT
-    return target_pct * basis >= half_width
+    quote_width = sum(l["ask"] - l["bid"] for l in legs)
+    return basis >= quote_width
 
 
 def score_and_rank(candidates):
@@ -165,7 +163,7 @@ def score_and_rank(candidates):
         print(f"{dropped} candidate(s) left out: no net {'credit/debit'} at the entry prices")
     too_tight = sum(1 for c in candidates if has_positive_net_entry(c) and not target_clears_quote_width(c))
     if too_tight:
-        print(f"{too_tight} calendar/diagonal candidate(s) left out: exit target smaller than half the quote width")
+        print(f"{too_tight} calendar/diagonal candidate(s) left out: net price smaller than the quote width of the legs")
     for c in candidates:
         if not has_positive_net_entry(c):
             continue
